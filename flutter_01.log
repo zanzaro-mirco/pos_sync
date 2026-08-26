@@ -1,0 +1,101 @@
+Flutter crash report.
+Please report a bug at https://github.com/flutter/flutter/issues.
+
+## command
+
+flutter test
+
+## exception
+
+ProcessException: ProcessException: Un criterio di controllo dell'applicazione ha bloccato il file (at ../../runtime/bin/process_win.cc:579)
+  Command: C:\Users\mzanz\develop\flutter\bin\cache\artifacts\engine\windows-x64\impellerc.exe --sksl --runtime-stage-vulkan --iplr --sl=build\unit_test_assets\shaders/ink_sparkle.frag --spirv=build\unit_test_assets\shaders/ink_sparkle.frag.spirv --input=C:\Users\mzanz\develop\flutter\packages\flutter\lib\src\material\shaders\ink_sparkle.frag --input-type=frag --include=C:\Users\mzanz\develop\flutter\packages\flutter\lib\src\material\shaders --include=C:\Users\mzanz\develop\flutter\bin\cache\artifacts\engine\windows-x64\shader_lib
+
+```
+#0      _ProcessImpl._start (dart:io-patch/process_patch.dart:411:33)
+#1      Process.start (dart:io-patch/process_patch.dart:42:20)
+#2      _runNonInteractiveProcess (dart:io-patch/process_patch.dart:613:18)
+#3      Process.run (dart:io-patch/process_patch.dart:56:12)
+#4      LocalProcessManager.run (package:process/src/interface/local_process_manager.dart:72:22)
+#5      ErrorHandlingProcessManager.run.<anonymous closure> (package:flutter_tools/src/base/error_handling_io.dart:1258:26)
+#6      _run (package:flutter_tools/src/base/error_handling_io.dart:1052:22)
+#7      ErrorHandlingProcessManager.run (package:flutter_tools/src/base/error_handling_io.dart:1256:12)
+#8      ShaderCompiler._runCommand (package:flutter_tools/src/build_system/tools/shader_compiler.dart:365:36)
+#9      ShaderCompiler.compileShader (package:flutter_tools/src/build_system/tools/shader_compiler.dart:268:36)
+#10     writeBundle.<anonymous closure> (package:flutter_tools/src/bundle_builder.dart:229:46)
+<asynchronous suspension>
+#11     Future.wait.<anonymous closure> (dart:async/future.dart:567:21)
+<asynchronous suspension>
+#12     writeBundle (package:flutter_tools/src/bundle_builder.dart:173:3)
+<asynchronous suspension>
+#13     TestCommand._buildTestAsset (package:flutter_tools/src/commands/test.dart:811:7)
+<asynchronous suspension>
+#14     TestCommand.runCommand (package:flutter_tools/src/commands/test.dart:507:7)
+<asynchronous suspension>
+#15     FlutterCommand.run.<anonymous closure> (package:flutter_tools/src/runner/flutter_command.dart:1663:27)
+<asynchronous suspension>
+#16     AppContext.run.<anonymous closure> (package:flutter_tools/src/base/context.dart:154:19)
+<asynchronous suspension>
+#17     CommandRunner.runCommand (package:args/command_runner.dart:212:13)
+<asynchronous suspension>
+#18     FlutterCommandRunner.runCommand.<anonymous closure> (package:flutter_tools/src/runner/flutter_command_runner.dart:496:9)
+<asynchronous suspension>
+#19     AppContext.run.<anonymous closure> (package:flutter_tools/src/base/context.dart:154:19)
+<asynchronous suspension>
+#20     FlutterCommandRunner.runCommand (package:flutter_tools/src/runner/flutter_command_runner.dart:431:5)
+<asynchronous suspension>
+#21     FlutterCommandRunner.run.<anonymous closure> (package:flutter_tools/src/runner/flutter_command_runner.dart:307:33)
+<asynchronous suspension>
+#22     run.<anonymous closure>.<anonymous closure> (package:flutter_tools/runner.dart:104:11)
+<asynchronous suspension>
+#23     AppContext.run.<anonymous closure> (package:flutter_tools/src/base/context.dart:154:19)
+<asynchronous suspension>
+#24     main (package:flutter_tools/executable.dart:103:3)
+<asynchronous suspension>
+```
+
+## flutter doctor
+
+```
+[32m[✓][39m Flutter (Channel stable, 3.47.1, on Microsoft Windows [Versione 10.0.26200.9168], locale it-IT) [268ms]
+    [32m•[39m Flutter version 3.47.1 on channel stable at C:\Users\mzanz\develop\flutter
+    [32m•[39m Upstream repository https://github.com/flutter/flutter.git
+    [32m•[39m Framework revision 6655482ec0 (7 days ago), 2026-08-19 10:07:23 -0700
+    [32m•[39m Engine revision 5d53178869
+    [32m•[39m Dart version 3.13.1
+    [32m•[39m DevTools version 2.60.0
+    [32m•[39m Feature flags: enable-web, enable-linux-desktop, enable-macos-desktop, enable-windows-desktop, enable-android,
+      enable-ios, cli-animations, enable-native-assets, enable-record-use, enable-swift-package-manager,
+      omit-legacy-version-file, enable-lldb-debugging, enable-uiscene-migration
+
+[32m[✓][39m Windows Version (Windows 11 or higher, 25H2, 2009) [544ms]
+
+[33m[!][39m Android toolchain - develop for Android devices (Android SDK version 36.0.0) [369ms]
+    [32m•[39m Android SDK at C:\Users\mzanz\AppData\Local\Android\sdk
+    [32m•[39m Emulator version 37.1.11.0 (build_id 15917651) (CL:N/A)
+    [32m•[39m Platform android-37.0, build-tools 36.0.0
+    [32m•[39m Java binary at: C:\Program Files\Android\Android Studio\jbr\bin\java
+      This is the JDK bundled with the latest Android Studio installation on this machine.
+      To manually set the JDK path, use: `flutter config --jdk-dir="path/to/jdk"`.
+    [32m•[39m Java version OpenJDK Runtime Environment (build 25.0.2+-15348964-b329.117)
+    [31m✗[39m Android license status unknown.
+      Run `flutter doctor --android-licenses` to accept the SDK licenses.
+      See https://flutter.dev/to/windows-android-setup for more details.
+
+[32m[✓][39m Chrome - develop for the web [11ms]
+    [32m•[39m Chrome at C:\Program Files\Google\Chrome\Application\chrome.exe
+
+[31m[✗][39m Visual Studio - develop Windows apps [10ms]
+    [31m✗[39m Visual Studio not installed; this is necessary to develop Windows apps.
+      Download at https://visualstudio.microsoft.com/downloads/.
+      Please install the "Desktop development with C++" workload, including all of its default components
+
+[32m[✓][39m Connected device (3 available) [173ms]
+    [32m•[39m Windows (desktop) • windows • windows-x64    • Microsoft Windows [Versione 10.0.26200.9168]
+    [32m•[39m Chrome (web)      • chrome  • web-javascript • Google Chrome 151.0.7922.172
+    [32m•[39m Edge (web)        • edge    • web-javascript • Microsoft Edge 151.0.4129.107
+
+[32m[✓][39m Network resources [689ms]
+    [32m•[39m All expected network resources are available.
+
+[33m![39m Doctor found issues in 2 categories.
+```
