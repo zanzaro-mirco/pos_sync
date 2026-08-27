@@ -4,7 +4,7 @@ App Flutter **offline-first** per la raccolta ordini in sala: gli ordini si crea
 consultano anche senza rete, e vengono sincronizzati quando la connettività torna —
 senza mai generare duplicati.
 
-[![CI](https://github.com/zanzaromirco-ship-it/pos_sync/actions/workflows/ci.yml/badge.svg)](https://github.com/zanzaromirco-ship-it/pos_sync/actions/workflows/ci.yml)
+[![CI](https://github.com/zanzaro-mirco/pos_sync/actions/workflows/ci.yml/badge.svg)](https://github.com/zanzaro-mirco/pos_sync/actions/workflows/ci.yml)
 
 ## Il problema
 
