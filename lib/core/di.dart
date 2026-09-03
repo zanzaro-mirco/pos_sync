@@ -1,6 +1,8 @@
+import 'package:drift_flutter/drift_flutter.dart';
 import 'package:get_it/get_it.dart';
 
-import '../features/orders/data/in_memory_order_store.dart';
+import '../features/orders/data/local/app_database.dart';
+import '../features/orders/data/local/drift_order_store.dart';
 import '../features/orders/data/order_store.dart';
 import '../features/orders/data/orders_repository_impl.dart';
 import '../features/orders/data/remote_api.dart';
@@ -14,17 +16,25 @@ final GetIt sl = GetIt.instance;
 
 /// Registrazione delle dipendenze — composition root.
 ///
-/// È l'unico punto dell'applicazione che conosce le classi concrete. Nota che
-/// la stessa istanza di [InMemoryOrderStore] viene registrata sotto tre
-/// contratti diversi: chi la usa vede solo il pezzo che gli serve, ma lo stato
-/// resta condiviso. Passare a SQLite significa cambiare queste tre righe.
+/// È l'unico punto dell'applicazione che conosce le classi concrete. La stessa
+/// istanza di [DriftOrderStore] viene registrata sotto quattro contratti
+/// diversi: chi la usa vede solo il pezzo che gli serve, ma il deposito resta
+/// uno solo, che è ciò che rende possibile la scrittura atomica.
+///
+/// Il passaggio da memoria a SQLite è costato esattamente queste righe:
+/// repository, worker e presentazione non sanno che è successo.
+///
+/// `driftDatabase` apre il file pigramente, alla prima interrogazione, quindi
+/// questa funzione resta sincrona e `main()` non cambia.
 void setUpDependencies({bool demoMode = true}) {
-  sl.registerLazySingleton<InMemoryOrderStore>(InMemoryOrderStore.new);
-  sl.registerLazySingleton<OrderStore>(() => sl<InMemoryOrderStore>());
-  sl.registerLazySingleton<OutboxStore>(() => sl<InMemoryOrderStore>());
-  sl.registerLazySingleton<OrderOutboxTransaction>(
-      () => sl<InMemoryOrderStore>());
-  sl.registerLazySingleton<OrdersWatcher>(() => sl<InMemoryOrderStore>());
+  sl.registerLazySingleton<AppDatabase>(
+      () => AppDatabase(driftDatabase(name: 'pos_sync')));
+  sl.registerLazySingleton<DriftOrderStore>(
+      () => DriftOrderStore(sl<AppDatabase>()));
+  sl.registerLazySingleton<OrderStore>(() => sl<DriftOrderStore>());
+  sl.registerLazySingleton<OutboxStore>(() => sl<DriftOrderStore>());
+  sl.registerLazySingleton<OrderOutboxTransaction>(() => sl<DriftOrderStore>());
+  sl.registerLazySingleton<OrdersWatcher>(() => sl<DriftOrderStore>());
 
   sl.registerLazySingleton<Clock>(SystemClock.new);
   sl.registerLazySingleton<IdGenerator>(UuidGenerator.new);

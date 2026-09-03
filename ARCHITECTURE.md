@@ -16,6 +16,10 @@ features/orders/
   data/
     order_store.dart           OrderStore · OutboxStore · OrderOutboxTransaction · OrdersWatcher
     in_memory_order_store.dart implementa i quattro contratti
+    local/
+      tables.dart              orders · order_lines · outbox
+      app_database.dart        schema, versione, PRAGMA
+      drift_order_store.dart   implementa gli stessi quattro contratti su SQLite
     dto/order_dto.dart         rappresentazione di rete + mapper
     remote_api.dart            contratto + gerarchia sealed degli errori
     outbox_scheduler.dart      creazione della voce di coda
@@ -54,6 +58,51 @@ dopo la sincronizzazione. Ora la sorgente notifica i cambiamenti.
 | **Composition root** | `core/di.dart` | Unico punto che conosce le classi concrete |
 | **Idempotency key** | `Order.id` generato dal client | Il ritentativo dopo una risposta persa non crea duplicati |
 
+## La persistenza
+
+### Perché Drift
+
+`sqflite` è SQLite grezzo: query come stringhe, nessun controllo a compilazione, nessuna
+reattività. `Isar` e `ObjectBox` sono più veloci ma non sono SQL e legano i dati al loro
+formato. Drift è l'unico che dà **SQL tipizzato** e **query osservabili**, e la seconda
+cosa è quella che serve qui: `watch()` è un `Stream` che riemette quando le tabelle
+lette cambiano. Senza, la sorgente unica di verità si trasforma in "ricarica tutto dopo
+ogni scrittura" — che è esattamente ciò da cui il progetto era già scappato.
+
+Il costo è un passo di generazione del codice e un `.g.dart` accanto alle tabelle. Il
+file generato è versionato, così `flutter test` funziona subito dopo un clone, e la CI
+rigenera e fallisce se qualcuno modifica le tabelle senza rigenerare.
+
+### Cosa incapsula `drift_flutter`
+
+Una riga — `driftDatabase(name: 'pos_sync')` — al posto di tre cose: il percorso del file
+nella cartella dei documenti dell'applicazione (`path_provider`), le librerie native di
+SQLite impacchettate con l'app (`sqlite3_flutter_libs`) e l'apertura su un isolate di
+background, che tiene le interrogazioni fuori dal thread della UI. Apre pigramente, alla
+prima query, e per questo la composition root resta sincrona.
+
+### Tre decisioni nello schema
+
+**Le righe d'ordine hanno una colonna `position`.** `Order.lines` è una lista *ordinata*;
+le righe di una tabella SQL non hanno ordine. Senza quella colonna l'ordine dipenderebbe
+da come il motore decide di restituirle — e i test in memoria non se ne accorgerebbero
+mai.
+
+**Gli istanti sono salvati in microsecondi.** `DateTime` in Dart ha precisione al
+microsecondo; il formato storico di Drift salva secondi. Due depositi che troncano in
+modo diverso non possono superare lo stesso test.
+
+**La coda non ha una chiave esterna verso gli ordini.** È deliberato: una voce deve poter
+sopravvivere al suo ordine, perché il worker gestisce esplicitamente quel caso. Una
+cascata renderebbe quel ramo codice morto invece che una difesa.
+
+### La transazione, finalmente vera
+
+`saveOrderWithOutbox` in memoria era due assegnazioni a due mappe: atomica per
+costruzione, e quindi incapace di dimostrare alcunché. Su SQLite è una transazione con
+rollback, e c'è un test che la interrompe a metà — dopo l'inserimento della testata,
+prima delle righe — e verifica che non resti niente.
+
 ## SOLID, punto per punto
 
 **Single Responsibility.** Il `SyncWorker` faceva cinque cose: orchestrare la coda,
@@ -91,13 +140,33 @@ punto solo.
 | Un doppio dello store doveva implementare sette metodi | Ne implementa solo quelli del contratto che serve |
 | Nessun test su mappatura e serializzazione | `order_dto_test.dart`: JSON incompleto, record inutilizzabili, andata e ritorno |
 | Politica di ritentativo verificabile solo passando dal worker | `retry_policy_test.dart` la testa da sola |
+| I contratti del deposito erano verificati solo di riflesso, attraverso repository e worker | `store_contract.dart`: una suite sola, girata su entrambe le implementazioni |
+
+### La suite di contratto
+
+Un test che gira su un'implementazione verifica *quella*. Lo stesso test su due verifica
+il **contratto** — e il contratto è ciò su cui repository e worker fanno affidamento.
+`store_contract.dart` è scritto una volta e invocato da
+`in_memory_order_store_test.dart` e `drift_order_store_test.dart`: ordinamenti, posizione
+delle righe, sostituzione invece di accumulo, coerenza fra lista e contatore. Sono tutte
+promesse che i tipi non sanno esprimere.
+
+Al di là del contratto restano le prove che solo un deposito vero può dare: il rollback,
+i vincoli di integrità effettivamente accesi, e i dati che si ritrovano dopo aver chiuso
+e riaperto il file.
 
 ## Dove ho consapevolmente semplificato
 
 - **Nessuno use case fra cubit e repository.** Le operazioni sono due e dirette.
   Diventerebbero utili con logica composta fra più feature.
-- **Persistenza in memoria.** Le interfacce sono già in posizione: la versione SQLite
-  è una classe nuova e tre righe nella composition root.
+- **Una sola versione dello schema.** C'è `schemaVersion` e c'è il punto in cui scrivere
+  le migrazioni, ma non essendoci ancora una versione 2 non c'è niente da migrare.
+- **Il fuso orario non sopravvive al deposito.** Gli istanti sono salvati come punto
+  assoluto nel tempo e riletti come ora locale: il flag `isUtc` si perde. Per un
+  applicativo che gira su un dispositivo solo non cambia niente; in un sistema con
+  dispositivi in fusi diversi andrebbe salvato anche l'offset.
+- **Il file non è cifrato.** Su un dispositivo di sala perso, gli ordini sono leggibili.
+  Drift supporta SQLCipher e sarebbe un cambio di esecutore, non di codice.
 - **Concorrenza gestita con un flag booleano** nel worker. Sufficiente per un singolo
   isolate; con più isolate servirebbe un lock vero.
 - **La gestione dei conflitti non c'è.** Funziona finché i dispositivi lavorano su

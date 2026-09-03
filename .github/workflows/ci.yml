@@ -21,6 +21,15 @@ jobs:
       - name: Verify formatting
         run: dart format --output=none --set-exit-if-changed .
 
+      # Il codice generato da Drift è versionato, così `flutter test` funziona
+      # subito dopo un clone. Questo passo verifica che sia allineato alle
+      # tabelle: chi modifica lo schema e dimentica di rigenerare lo scopre
+      # qui, non quando una colonna sparisce a runtime.
+      - name: Codice generato allineato
+        run: |
+          dart run build_runner build
+          git diff --exit-code
+
       - name: Analyze
         run: flutter analyze --fatal-infos
 

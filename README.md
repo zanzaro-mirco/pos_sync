@@ -22,7 +22,7 @@ la rete è un dettaglio di sincronizzazione**.
    UI (Cubit)  ◄── osserva OrdersSnapshot (ordini + pendenze, coerenti)
        │  scrive solo in locale, non sa se c'è rete
        ▼
-  OrdersRepository ──► OrderOutboxTransaction ──► store locale
+  OrdersRepository ──► OrderOutboxTransaction ──► SQLite (Drift)
        │                  (ordine + outbox, atomico)      ▲
        ▼                                                  │
    OutboxStore ──► SyncWorker ──► RetryPolicy ──► Backoff │
@@ -106,6 +106,10 @@ I test coprono i casi che contano, non le righe facili:
 | Due `drain()` concorrenti | Un solo invio |
 | JSON incompleto o malformato | Il record si scarta, l'app non crasha |
 | Politica di ritentativo | Testata da sola, senza passare dal worker |
+| **Contratto del deposito** | La stessa suite passa su `InMemoryOrderStore` e su `DriftOrderStore` |
+| Scrittura interrotta a metà | La transazione annulla tutto: nessun ordine senza la sua voce di coda |
+| Chiusura e riapertura | Ordini, righe, stato e coda si ritrovano identici |
+| Stato sconosciuto nel file | Degrada a `pending` invece di far fallire la lettura |
 
 Tempo, identificativi, log e politica di ritentativo sono tutti iniettati: i test sul
 backoff girano in millisecondi invece di attendere minuti reali, gli id sono
@@ -117,12 +121,17 @@ L'app parte con un backend simulato. Il pulsante di sincronizzazione e il contat
 "da inviare" nella barra superiore permettono di vedere il ciclo completo. Per simulare
 l'assenza di rete basta impostare `FakeRemoteApi.online = false`.
 
+Gli ordini finiscono in un file SQLite: chiudendo l'app e riaprendola sono ancora lì,
+con il loro stato di sincronizzazione.
+
 ## Stato e prossimi passi
 
-La logica di sincronizzazione è completa e testata. Cosa manca per un uso reale:
+La logica di sincronizzazione è completa e testata, e i dati sopravvivono alla chiusura
+dell'app. Cosa manca per un uso reale:
 
-- [ ] Implementazione `SqfliteOrderStore` (i contratti sono già in posizione: è una classe
-      nuova più tre righe nella composition root, nessuna modifica al resto)
+- [x] Persistenza su SQLite con Drift — `DriftOrderStore` implementa gli stessi quattro
+      contratti dell'implementazione in memoria; fuori dal livello dati è cambiata solo
+      la composition root
 - [ ] Ascolto dei cambi di connettività con `connectivity_plus` per lanciare `drain()`
       automaticamente
 - [ ] `WorkManager` su Android per drenare la coda anche ad app chiusa

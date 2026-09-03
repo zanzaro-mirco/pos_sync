@@ -13,12 +13,16 @@ dependencies:
   equatable: ^2.0.5
   get_it: ^7.7.0
   uuid: ^4.4.0
+  drift: ^2.34.4
+  drift_flutter: ^0.3.1
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   bloc_test: ^9.1.7
   flutter_lints: ^4.0.0
+  drift_dev: ^2.34.6
+  build_runner: ^2.16.1
 
 flutter:
   uses-material-design: true
