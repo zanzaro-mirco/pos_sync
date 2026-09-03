@@ -3,7 +3,11 @@
 build/
 .flutter-plugins
 .flutter-plugins-dependencies
-pubspec.lock
+# `pubspec.lock` è versionato: questa è un'applicazione, non un pacchetto.
+# Ignorarlo è il default del template dei pacchetti, dove la libreria deve
+# funzionare con qualunque versione compatibile delle sue dipendenze. Qui vale
+# il contrario: la CI e chi clona devono risolvere le stesse versioni con cui
+# la suite è stata vista passare.
 coverage/
 .idea/
 *.iml
