@@ -9,7 +9,7 @@ jobs:
   analyze-and-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # La versione e' fissata, non segue il canale stabile: i golden test
       # confrontano pixel, e il motore di Flutter porta con se' il proprio
@@ -59,13 +59,13 @@ jobs:
       # cosa e' cambiato.
       - name: Differenze dei golden
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: golden-failures
           path: test/failures/
           if-no-files-found: ignore
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: coverage
           path: coverage/lcov.info
@@ -74,7 +74,7 @@ jobs:
     needs: analyze-and-test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-java@v5
         with:
@@ -93,7 +93,7 @@ jobs:
       - name: Build APK
         run: flutter build apk --debug --build-number=${{ github.run_number }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: app-debug
           path: build/app/outputs/flutter-apk/app-debug.apk
