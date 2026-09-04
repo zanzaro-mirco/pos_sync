@@ -9,6 +9,8 @@ build/
 # il contrario: la CI e chi clona devono risolvere le stesse versioni con cui
 # la suite è stata vista passare.
 coverage/
+# Immagini prodotte da un golden test fallito: sono un esito, non una fonte.
+test/failures/
 .idea/
 *.iml
 .DS_Store

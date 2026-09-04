@@ -95,6 +95,7 @@ lib/
       orders_cubit.dart
       orders_state.dart
       orders_page.dart
+      order_tile.dart            la riga della lista, con l'indicatore di stato
 ```
 
 Le dipendenze puntano verso `domain`, mai il contrario: la logica di sincronizzazione si
@@ -130,10 +131,30 @@ I test coprono i casi che contano, non le righe facili:
 | Rete che ricade durante l'attesa | Il drenaggio non parte: nessun tentativo sprecato |
 | Jitter sul ritorno della rete | Il ritardo sta nei limiti e non è costante |
 | Drenaggio automatico che esplode | Finisce nel log invece di far cadere la zona asincrona |
+| I tre stati della schermata | Vuoto, con ordini ed errore — e "nessun ordine" non viene confuso con "non riesco a leggerli" |
+| Comandi dell'interfaccia | Premere sincronizza *sincronizza*: il test conta le chiamate arrivate al cubit |
+| Etichette per il lettore di schermo | Ogni stato si annuncia, il colore non è l'unico portatore dell'informazione |
+| **Aspetto della riga** | Quattro golden: cambiare di **uno** il valore di un colore fa fallire il test |
 
 Tempo, identificativi, log e politica di ritentativo sono tutti iniettati: i test sul
 backoff girano in millisecondi invece di attendere minuti reali, gli id sono
 deterministici (`id-1`, `id-2`) e si può asserire su cosa è stato registrato nel log.
+
+## I quattro stati di un ordine
+
+Sono le immagini di riferimento dei golden test, prese direttamente dalla suite:
+
+| Stato | |
+|---|---|
+| Da inviare | ![in attesa](test/goldens/order_tile_pending.png) |
+| Invio in corso | ![invio in corso](test/goldens/order_tile_sending.png) |
+| Sincronizzato | ![sincronizzato](test/goldens/order_tile_synced.png) |
+| Invio fallito | ![fallito](test/goldens/order_tile_failed.png) |
+
+I colori non vengono dalla `ColorScheme`: il seme del tema è una decisione di marca e può
+cambiare, mentre "riuscito" e "fallito" devono restare leggibili come stati. E il colore non
+è l'unico portatore dell'informazione — le icone sono diverse fra loro e ognuna ha
+un'etichetta per il lettore di schermo.
 
 ## Provare la demo
 
@@ -160,9 +181,11 @@ dell'app e la coda riparte da sola quando la rete torna. Cosa manca per un uso r
       `drain()` riparte sulla transizione offline ➜ online, con jitter
 - [x] `WorkManager` su Android per drenare la coda anche ad app chiusa — unico pezzo non
       verificabile in CI, si osserva con `adb shell dumpsys jobscheduler` e `logcat`
+- [x] Widget test sulla `OrdersPage` e golden test sulla riga dell'ordine, in CI con la
+      versione di Flutter fissata
 - [ ] Client HTTP reale al posto di `FakeRemoteApi`
-- [ ] Widget test sulla `OrdersPage` (le `Key` sono già in posizione)
 - [ ] Gestione dei conflitti fra dispositivi
+- [ ] Test end-to-end su emulatore con `integration_test`
 
 ## Licenza
 

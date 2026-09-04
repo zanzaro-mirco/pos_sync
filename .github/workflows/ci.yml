@@ -11,9 +11,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # La versione e' fissata, non segue il canale stabile: i golden test
+      # confrontano pixel, e il motore di Flutter porta con se' il proprio
+      # stack di disegno e di font. Un aggiornamento dell'SDK cambierebbe le
+      # immagini di riferimento senza che nessuno abbia toccato il codice, e
+      # un test che fallisce da solo e' un test che qualcuno disattiva.
+      # Aggiornare la versione qui e' una decisione deliberata, e va fatta
+      # insieme alla rigenerazione dei riferimenti.
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: 3.47.1
           cache: true
 
       - run: flutter pub get
@@ -36,6 +44,18 @@ jobs:
       - name: Test
         run: flutter test --coverage
 
+      # Quando un golden fallisce, Flutter scrive in test/failures l'immagine
+      # ottenuta, quella attesa e la differenza fra le due. Senza questo passo
+      # il log direbbe solo "0.98%, 253px diff": vero, e inutile per capire
+      # cosa e' cambiato.
+      - name: Differenze dei golden
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-failures
+          path: test/failures/
+          if-no-files-found: ignore
+
       - uses: actions/upload-artifact@v4
         with:
           name: coverage
@@ -55,6 +75,8 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          # Fissata: vedi il commento nel lavoro di analisi.
+          flutter-version: 3.47.1
           cache: true
 
       - run: flutter pub get

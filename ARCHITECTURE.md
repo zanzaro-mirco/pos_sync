@@ -34,6 +34,7 @@ features/orders/
     auto_sync.dart             collega il ritorno della rete al drenaggio
   presentation/
     orders_cubit.dart  orders_state.dart  orders_page.dart
+    order_tile.dart            la riga della lista + l'indicatore di stato
 ```
 
 ## MVVM, in concreto
@@ -182,6 +183,76 @@ pianificato e poi eseguito — si legge da `adb shell dumpsys jobscheduler` e da
 drenaggio che esegue è lo stesso testato dal resto della suite: il lavoro in background non
 contiene logica propria, e anche questo è deliberato.
 
+## L'interfaccia sotto test
+
+Era il buco più visibile della suite: undici file di test e nessuno che aprisse
+la schermata. Le `Key` erano in posizione dal primo giorno, il che rendeva
+l'assenza ancora meno giustificabile.
+
+### Un cubit preimpostato, non il grafo vero
+
+I widget test montano `OrdersPage` su un `CubitPreimpostato`, che è un
+`Cubit<OrdersState>` e niente altro: nessun repository, nessun worker, nessun
+database. Un test che monta il grafo vero per vedere una lista vuota sta
+testando il grafo, non la pagina — e fallisce per motivi che con la pagina non
+c'entrano.
+
+Il doppio conta anche le chiamate ricevute, così i test verificano che i comandi
+**arrivino a destinazione** invece di limitarsi a controllare che i pulsanti
+esistano. È la differenza fra "c'è un pulsante di sincronizzazione" e "premerlo
+sincronizza".
+
+I tre stati che contano sono vuoto, con ordini ed errore, e la distinzione fra i
+primi due e il terzo è quella che un test protegge davvero: *"non ci sono
+ordini"* e *"non riesco a leggerli"* sono due cose diverse, e confonderle
+nasconde il guasto proprio nel momento in cui va visto.
+
+### Perché i golden, e su cosa
+
+Un test che cerca `find.byIcon(Icons.cloud_done)` passa anche se quell'icona è
+diventata invisibile, grigia o larga il doppio. Il golden no: confronta i pixel.
+
+Il soggetto è la **riga**, non la schermata. Un golden sull'intera pagina
+cambierebbe a ogni ritocco della barra superiore, e un test che fallisce per
+motivi che non interessano smette presto di essere letto — poi disattivato.
+`OrderTile` è stato estratto dalla pagina esattamente per poterlo rendere da
+solo.
+
+Tre dettagli che nella pratica fanno la differenza fra un golden utile e uno
+inservibile:
+
+- **Il `RepaintBoundary` non è decorativo.** `matchesGoldenFile` non ritaglia il
+  widget che gli si indica: risale al primo confine di ridisegno sopra di esso.
+  Senza, l'immagine è l'intera finestra con la riga persa in mezzo — e cambia a
+  ogni ritocco dello sfondo.
+- **I font vanno registrati.** Senza, Flutter ripiega su un carattere segnaposto
+  e il riferimento diventa una fila di rettangoli: deterministico, e illeggibile
+  per chiunque debba decidere se un cambiamento è quello voluto. `flutter_test_config.dart`
+  carica Roboto e MaterialIcons dall'SDK — gli stessi che usa l'app, e nessun
+  binario in più da versionare.
+- **La versione di Flutter è fissata in CI.** Il motore porta con sé il proprio
+  stack di disegno e di font, quindi la stessa versione dà gli stessi pixel su
+  sistemi diversi; una versione diversa no. Senza il pin i golden fallirebbero
+  da soli il giorno di un aggiornamento, che è il modo più rapido per farli
+  disattivare. Aggiornare la versione diventa una decisione deliberata, da
+  prendere insieme alla rigenerazione dei riferimenti.
+
+Quando un golden fallisce la pipeline pubblica `test/failures/`: immagine
+ottenuta, attesa e differenza. Un log che dice `0.98%, 253px diff` è vero e
+inutile.
+
+### I colori di stato non vengono dalla ColorScheme
+
+Il seme del tema è una decisione di marca e può cambiare; "in attesa",
+"riuscito" e "fallito" devono restare leggibili come stati. Derivarli dal seme
+significherebbe che un cambio di colore aziendale può rendere il successo e
+l'errore due sfumature della stessa tinta.
+
+Il colore non è comunque l'unico portatore dell'informazione: le quattro icone
+sono diverse fra loro e ognuna porta un'etichetta per il lettore di schermo, che
+un test verifica. Chi non distingue il rosso dal verde legge lo stato
+dall'icona.
+
 ## SOLID, punto per punto
 
 **Single Responsibility.** Il `SyncWorker` faceva cinque cose: orchestrare la coda,
@@ -221,6 +292,8 @@ punto solo.
 | Politica di ritentativo verificabile solo passando dal worker | `retry_policy_test.dart` la testa da sola |
 | I contratti del deposito erano verificati solo di riflesso, attraverso repository e worker | `store_contract.dart`: una suite sola, girata su entrambe le implementazioni |
 | La connettività sarebbe stata verificabile solo mettendo il telefono in modalità aereo | `FakeConnectivityMonitor` e `Sleeper` iniettato: transizioni e jitter verificati in millisecondi |
+| La schermata non era coperta da nessun test | `orders_page_test.dart`: i tre stati, i comandi che arrivano al cubit, le etichette per il lettore di schermo |
+| L'aspetto era verificabile solo guardando l'app | Quattro golden sulla riga dell'ordine: cambiare di uno il valore di un colore fa fallire il test |
 
 ### La suite di contratto
 
@@ -259,5 +332,12 @@ e riaperto il file.
 - **Il lavoro in background è solo Android.** Su iOS il modello è diverso — BGTaskScheduler
   decide *se* eseguire, non *quando* — e prometterlo senza averlo verificato su un dispositivo
   Apple sarebbe una dichiarazione non sostenuta.
+- **I golden coprono la riga, non la schermata.** Un riferimento sull'intera pagina
+  fallirebbe a ogni ritocco della barra superiore. Il prezzo è che una regressione nella
+  disposizione della pagina non viene vista da nessun golden: la coprono i widget test, che
+  però guardano la struttura e non i pixel.
+- **Nessun test end-to-end su un dispositivo.** Widget test e golden girano sul motore di
+  Flutter, non su Android: il canale della piattaforma, i permessi e il ciclo di vita reale
+  non sono coperti. Servirebbe `integration_test` e un emulatore in pipeline.
 - **La gestione dei conflitti non c'è.** Funziona finché i dispositivi lavorano su
   dati disgiunti — ed è il primo limite che dichiaro quando presento il progetto.
