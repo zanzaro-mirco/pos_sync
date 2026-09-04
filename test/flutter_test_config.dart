@@ -15,9 +15,10 @@ import 'package:flutter_test/flutter_test.dart';
 /// esattamente ciò che un golden dovrebbe permettere di fare.
 ///
 /// I font vengono dall'SDK, non dal repository: sono gli stessi che l'app usa
-/// davvero, e non aggiungono binari da versionare. In cambio la suite dipende
-/// dalla versione di Flutter installata — motivo per cui la pipeline la fissa
-/// invece di seguire il canale stabile.
+/// davvero e non aggiungono un megabyte e mezzo di binari da versionare. Il
+/// prezzo è che devono *esserci*: `flutter test` da solo non li scarica, perché
+/// senza questo file non gli servirebbero. La pipeline chiama `flutter precache`
+/// prima dei test per questo motivo.
 Future<void> testExecutable(FutureOr<void> Function() testMain) async {
   TestWidgetsFlutterBinding.ensureInitialized();
   await _registra('MaterialIcons', 'materialicons-regular.otf');
@@ -26,6 +27,15 @@ Future<void> testExecutable(FutureOr<void> Function() testMain) async {
 }
 
 Future<void> _registra(String famiglia, String nomeFile) async {
+  final File file = _trova(nomeFile);
+  final FontLoader loader = FontLoader(famiglia)
+    ..addFont(
+      Future<ByteData>.value(ByteData.sublistView(file.readAsBytesSync())),
+    );
+  await loader.load();
+}
+
+File _trova(String nomeFile) {
   final String? radice = Platform.environment['FLUTTER_ROOT'];
   if (radice == null) {
     throw StateError(
@@ -34,19 +44,38 @@ Future<void> _registra(String famiglia, String nomeFile) async {
     );
   }
 
-  final File file = File(
-    '$radice/bin/cache/artifacts/material_fonts/$nomeFile',
-  );
-  if (!file.existsSync()) {
-    // Meglio fermarsi che proseguire in silenzio: senza il font i golden
-    // fallirebbero tutti insieme, e il messaggio parlerebbe di pixel diversi
-    // invece che del file mancante.
-    throw StateError('Font non trovato: ${file.path}');
+  final Directory cartella =
+      Directory('$radice/bin/cache/artifacts/material_fonts');
+  if (!cartella.existsSync()) {
+    throw StateError(
+      'Cartella dei font assente: ${cartella.path}\n'
+      'Gli artefatti dell SDK si scaricano su richiesta: eseguire '
+      '`flutter precache` prima dei test.',
+    );
   }
 
-  final FontLoader loader = FontLoader(famiglia)
-    ..addFont(
-      Future<ByteData>.value(ByteData.sublistView(file.readAsBytesSync())),
+  // Confronto senza distinzione di maiuscole: il nome dei file dentro
+  // l'artefatto è cambiato fra le versioni dell'SDK, e su Windows la
+  // differenza non si nota finché non si esegue la suite su Linux.
+  final List<File> file = cartella
+      .listSync()
+      .whereType<File>()
+      .where((File f) =>
+          f.uri.pathSegments.last.toLowerCase() == nomeFile.toLowerCase())
+      .toList();
+
+  if (file.isEmpty) {
+    // L'elenco nel messaggio non è verbosità: se questo scatta, scatta su una
+    // macchina a cui non si ha accesso, e la sola cosa utile è sapere cosa c'è
+    // davvero in quella cartella.
+    final String presenti = cartella
+        .listSync()
+        .map((FileSystemEntity e) => e.uri.pathSegments.last)
+        .join(', ');
+    throw StateError(
+      'Font "$nomeFile" non trovato in ${cartella.path}\nPresenti: $presenti',
     );
-  await loader.load();
+  }
+
+  return file.first;
 }

@@ -229,7 +229,11 @@ inservibile:
   e il riferimento diventa una fila di rettangoli: deterministico, e illeggibile
   per chiunque debba decidere se un cambiamento è quello voluto. `flutter_test_config.dart`
   carica Roboto e MaterialIcons dall'SDK — gli stessi che usa l'app, e nessun
-  binario in più da versionare.
+  binario in più da versionare. Il prezzo è che devono *esserci*: gli artefatti
+  dell'SDK si scaricano su richiesta e `flutter test` da solo non li chiede, così
+  la pipeline esegue `flutter precache` prima dei test. È il tipo di dipendenza
+  dall'ambiente che si scopre solo facendo girare la suite altrove — qui l'ha
+  scoperta la CI al primo tentativo.
 - **La versione di Flutter è fissata in CI.** Il motore porta con sé il proprio
   stack di disegno e di font, quindi la stessa versione dà gli stessi pixel su
   sistemi diversi; una versione diversa no. Senza il pin i golden fallirebbero

@@ -26,6 +26,15 @@ jobs:
 
       - run: flutter pub get
 
+      # Gli artefatti dell'SDK si scaricano su richiesta, e `flutter test` da
+      # solo non ha motivo di chiedere i font: senza questo passo i golden
+      # girerebbero con un carattere segnaposto. L'elenco serve a rendere
+      # diagnosticabile un fallimento su una macchina a cui non si ha accesso.
+      - name: Font per i golden
+        run: |
+          flutter precache --universal
+          ls -la "$FLUTTER_ROOT/bin/cache/artifacts/material_fonts/"
+
       - name: Verify formatting
         run: dart format --output=none --set-exit-if-changed .
 
