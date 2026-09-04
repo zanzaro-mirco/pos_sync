@@ -234,12 +234,27 @@ inservibile:
   la pipeline esegue `flutter precache` prima dei test. È il tipo di dipendenza
   dall'ambiente che si scopre solo facendo girare la suite altrove — qui l'ha
   scoperta la CI al primo tentativo.
-- **La versione di Flutter è fissata in CI.** Il motore porta con sé il proprio
-  stack di disegno e di font, quindi la stessa versione dà gli stessi pixel su
-  sistemi diversi; una versione diversa no. Senza il pin i golden fallirebbero
-  da soli il giorno di un aggiornamento, che è il modo più rapido per farli
-  disattivare. Aggiornare la versione diventa una decisione deliberata, da
+- **I riferimenti valgono per una piattaforma sola, e il numero lo dimostra.**
+  Avevo generato i quattro riferimenti su Windows dando per scontato che il
+  motore, portandosi dietro il proprio stack di font, producesse gli stessi
+  pixel ovunque. La pipeline ha risposto: **dal 3,27% al 3,91% di pixel
+  diversi**, tutti sull'antialiasing dei glifi, invisibili a occhio nudo. Il
+  cambiamento che questi test devono catturare — il verde spostato di *una*
+  unità — vale lo **0,98%**. Una soglia di tolleranza dovrebbe accettare il
+  3,91% e ingoierebbe il colore: il rumore di piattaforma è più grande del
+  segnale, e nessun numero separa i due. Quindi i riferimenti si generano e si
+  verificano su Linux, la piattaforma della pipeline, e altrove i test si
+  saltano.
+- **La versione di Flutter è fissata in CI.** Stesso motivo, su un altro asse:
+  il motore che disegna cambia fra le versioni, e senza il pin i golden
+  fallirebbero da soli il giorno di un aggiornamento — il modo più rapido per
+  farli disattivare. Aggiornare la versione diventa una decisione deliberata, da
   prendere insieme alla rigenerazione dei riferimenti.
+- **Rigenerare è un lavoro della pipeline, non della macchina di chi sviluppa.**
+  Il workflow `goldens.yml` si lancia a mano, riesegue i golden con
+  `--update-goldens` e pubblica le immagini come artefatto. Non le committa: un
+  aggiornamento automatico promuoverebbe a riferimento qualunque cosa la
+  pipeline abbia disegnato, regressioni comprese.
 
 Quando un golden fallisce la pipeline pubblica `test/failures/`: immagine
 ottenuta, attesa e differenza. Un log che dice `0.98%, 253px diff` è vero e
@@ -343,5 +358,9 @@ e riaperto il file.
 - **Nessun test end-to-end su un dispositivo.** Widget test e golden girano sul motore di
   Flutter, non su Android: il canale della piattaforma, i permessi e il ciclo di vita reale
   non sono coperti. Servirebbe `integration_test` e un emulatore in pipeline.
+- **I golden non danno riscontro fuori da Linux.** Su Windows si saltano, quindi una
+  regressione grafica introdotta qui si scopre solo dopo il push. L'alternativa — un
+  riferimento per piattaforma — raddoppia le immagini da tenere allineate, e quella che non
+  gira in CI resterebbe vecchia senza che nessuno se ne accorga.
 - **La gestione dei conflitti non c'è.** Funziona finché i dispositivi lavorano su
   dati disgiunti — ed è il primo limite che dichiaro quando presento il progetto.

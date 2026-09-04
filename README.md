@@ -134,7 +134,7 @@ I test coprono i casi che contano, non le righe facili:
 | I tre stati della schermata | Vuoto, con ordini ed errore — e "nessun ordine" non viene confuso con "non riesco a leggerli" |
 | Comandi dell'interfaccia | Premere sincronizza *sincronizza*: il test conta le chiamate arrivate al cubit |
 | Etichette per il lettore di schermo | Ogni stato si annuncia, il colore non è l'unico portatore dell'informazione |
-| **Aspetto della riga** | Quattro golden: cambiare di **uno** il valore di un colore fa fallire il test |
+| **Aspetto della riga** | Quattro golden: cambiare di **uno** il valore di un colore fa fallire il test (0,98%, 253 pixel) |
 
 Tempo, identificativi, log e politica di ritentativo sono tutti iniettati: i test sul
 backoff girano in millisecondi invece di attendere minuti reali, gli id sono
@@ -155,6 +155,14 @@ I colori non vengono dalla `ColorScheme`: il seme del tema è una decisione di m
 cambiare, mentre "riuscito" e "fallito" devono restare leggibili come stati. E il colore non
 è l'unico portatore dell'informazione — le icone sono diverse fra loro e ognuna ha
 un'etichetta per il lettore di schermo.
+
+I riferimenti si generano e si verificano **su Linux**, la piattaforma della pipeline, e
+altrove i test si saltano. Non è prudenza: gli stessi quattro riferimenti generati su Windows
+e confrontati su Linux differiscono dal 3,27% al 3,91% dei pixel per il solo antialiasing dei
+glifi, mentre il cambiamento da catturare ne vale lo 0,98%. Una soglia di tolleranza
+dovrebbe accettare il rumore e ingoierebbe il segnale. Per rigenerarli c'è il workflow
+[`goldens.yml`](.github/workflows/goldens.yml), che pubblica le immagini come artefatto
+invece di committarle da solo.
 
 ## Provare la demo
 

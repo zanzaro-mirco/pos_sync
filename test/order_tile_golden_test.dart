@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pos_sync/features/orders/domain/order.dart';
@@ -16,12 +18,23 @@ import 'package:pos_sync/features/orders/presentation/order_tile.dart';
 /// cambierebbe a ogni ritocco della barra superiore, e un test che fallisce
 /// per motivi che non interessano smette presto di essere letto.
 ///
-/// **Le immagini di riferimento dipendono dalla versione di Flutter.** Il
-/// motore porta con sé il proprio stack di font e di disegno, quindi la stessa
-/// versione produce gli stessi pixel su sistemi diversi — ma una versione
-/// diversa no. Per questo la pipeline fissa la versione invece di seguire il
-/// canale stabile: senza, i golden fallirebbero da soli il giorno di un
-/// aggiornamento, che è il modo più rapido per far disattivare un test.
+/// **I riferimenti valgono per una piattaforma sola, ed è misurato.** Gli
+/// stessi quattro riferimenti generati su Windows e confrontati su Linux
+/// differiscono fra il 3,27% e il 3,91% dei pixel: l'antialiasing dei glifi,
+/// visibile solo ingrandendo. Il cambiamento che questi test devono catturare —
+/// il verde del "sincronizzato" spostato di **una** unità — vale lo 0,98%. Una
+/// soglia di tolleranza dovrebbe quindi accettare il 3,91% e ingoierebbe il
+/// colore: il rumore di piattaforma è più grande del segnale, e nessun numero
+/// separa i due.
+///
+/// Da qui la scelta: i riferimenti sono generati e verificati su Linux, la
+/// piattaforma della pipeline, e altrove i test si saltano. Rigenerarli è un
+/// lavoro della pipeline — il workflow `goldens.yml` — non della macchina di chi
+/// sviluppa.
+///
+/// Per la stessa ragione la versione di Flutter è fissata: il motore porta con
+/// sé il proprio stack di font e di disegno, e un aggiornamento sposterebbe i
+/// pixel senza che nessuno abbia toccato il codice.
 void main() {
   Order ordine(SyncStatus stato) => Order(
         id: 'id-1',
@@ -84,6 +97,6 @@ void main() {
         find.byType(OrderTile),
         matchesGoldenFile('goldens/order_tile_${stato.name}.png'),
       );
-    });
+    }, skip: !Platform.isLinux);
   }
 }
