@@ -9,7 +9,12 @@ import 'features/orders/presentation/orders_page.dart';
 import 'features/orders/sync/sync_worker.dart';
 
 void main() {
+  // Serve prima di interrogare qualunque plugin: `startBackgroundServices`
+  // chiede subito lo stato della rete, e `runApp` inizializzerebbe il binding
+  // troppo tardi.
+  WidgetsFlutterBinding.ensureInitialized();
   setUpDependencies();
+  startBackgroundServices();
   runApp(const PosSyncApp());
 }
 

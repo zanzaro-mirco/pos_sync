@@ -21,9 +21,26 @@ class AppDatabase extends _$AppDatabase {
   MigrationStrategy get migration => MigrationStrategy(
         onCreate: (Migrator m) => m.createAll(),
         beforeOpen: (OpeningDetails details) async {
-          // SQLite disattiva i vincoli di integrità per connessione: senza
-          // questa riga la cascata sulle righe d'ordine sarebbe decorativa.
+          // Tutto ciò che segue vale *per connessione*: SQLite non lo legge
+          // dal file, va ripetuto ogni volta che si apre.
+
+          // Senza questa riga la cascata sulle righe d'ordine sarebbe
+          // decorativa: i vincoli di integrità nascono spenti.
           await customStatement('PRAGMA foreign_keys = ON');
+
+          // Le due righe seguenti servono perché lo stesso file viene aperto
+          // da due motori Flutter diversi — quello dell'app e quello del
+          // lavoro in background di WorkManager. Non condividono l'isolate di
+          // drift (`shareAcrossIsolates` funziona solo dentro lo stesso
+          // motore), quindi la mutua esclusione torna a essere un problema di
+          // SQLite.
+          //
+          // WAL fa convivere un lettore e uno scrittore invece di farli
+          // escludere a vicenda; il timeout trasforma un "database is locked"
+          // immediato in un'attesa. Un drenaggio dura millisecondi: aspettarlo
+          // è preferibile a fallire.
+          await customStatement('PRAGMA journal_mode = WAL');
+          await customStatement('PRAGMA busy_timeout = 5000');
         },
       );
 }

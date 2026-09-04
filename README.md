@@ -26,8 +26,12 @@ la rete è un dettaglio di sincronizzazione**.
        │                  (ordine + outbox, atomico)      ▲
        ▼                                                  │
    OutboxStore ──► SyncWorker ──► RetryPolicy ──► Backoff │
-                       │  drain(): invia le voci scadute  │
-                       ▼                                  │
+                       ▲  drain(): invia le voci scadute  │
+                       │                                  │
+                       ├── AutoSync   ◄── ConnectivityMonitor (offline ➜ online)
+                       └── WorkManager (Android, ad app chiusa)
+                       │
+                       ▼
                    RemoteApi (DTO) ──► backend idempotente su order.id
 ```
 
@@ -52,6 +56,12 @@ disponibile. Il jitter distribuisce i tentativi nel tempo.
 Un timeout si ritenta; un payload rifiutato no — ritentarlo all'infinito significa solo
 consumare batteria e riempire i log.
 
+**5. La coda riparte sulla *transizione* di rete, non sull'evento.**
+Passare da Wi-Fi a dati mobili è un cambiamento di rete, non di stato: agire su ogni evento
+farebbe ripartire la coda a ogni sobbalzo del segnale. E lo stato all'avvio conta come una
+transizione, altrimenti un'app riaperta sotto rete non riceverebbe mai un cambiamento e la
+coda del giorno prima resterebbe ferma per sempre.
+
 ## Architettura
 
 Le scelte, i pattern applicati e i limiti dichiarati sono in
@@ -72,11 +82,15 @@ lib/
     data/
       order_store.dart           interfaccia della persistenza
       in_memory_order_store.dart implementazione usata da test e demo
+      local/                     schema, database e deposito su SQLite (Drift)
       remote_api.dart            contratto + backend simulato controllabile
+      connectivity_plus_monitor.dart  adattatore sul plugin di rete
       orders_repository_impl.dart
     sync/
       backoff.dart               esponenziale con jitter
       sync_worker.dart           drenaggio della coda
+      connectivity_monitor.dart  contratto sulla rete + monitor controllabile
+      auto_sync.dart             dalla rete che torna al drenaggio, con jitter
     presentation/
       orders_cubit.dart
       orders_state.dart
@@ -110,6 +124,12 @@ I test coprono i casi che contano, non le righe facili:
 | Scrittura interrotta a metà | La transazione annulla tutto: nessun ordine senza la sua voce di coda |
 | Chiusura e riapertura | Ordini, righe, stato e coda si ritrovano identici |
 | Stato sconosciuto nel file | Degrada a `pending` invece di far fallire la lettura |
+| **Ritorno della rete** | Il monitor passa a online e **la coda si svuota da sola**, senza chiamate esplicite |
+| Wi-Fi che diventa dati mobili | Un secondo evento `online` non fa ripartire la coda |
+| Rete già presente all'avvio | La coda sopravvissuta alla sessione precedente viene drenata lo stesso |
+| Rete che ricade durante l'attesa | Il drenaggio non parte: nessun tentativo sprecato |
+| Jitter sul ritorno della rete | Il ritardo sta nei limiti e non è costante |
+| Drenaggio automatico che esplode | Finisce nel log invece di far cadere la zona asincrona |
 
 Tempo, identificativi, log e politica di ritentativo sono tutti iniettati: i test sul
 backoff girano in millisecondi invece di attendere minuti reali, gli id sono
@@ -117,26 +137,32 @@ deterministici (`id-1`, `id-2`) e si può asserire su cosa è stato registrato n
 
 ## Provare la demo
 
-L'app parte con un backend simulato. Il pulsante di sincronizzazione e il contatore
-"da inviare" nella barra superiore permettono di vedere il ciclo completo. Per simulare
-l'assenza di rete basta impostare `FakeRemoteApi.online = false`.
+L'app parte con un backend simulato, e in modalità demo **il finto server segue la rete vera
+del dispositivo**. Il giro completo si prova così:
 
-Gli ordini finiscono in un file SQLite: chiudendo l'app e riaprendola sono ancora lì,
-con il loro stato di sincronizzazione.
+1. Attiva la modalità aereo.
+2. Crea due ordini: restano in locale, il contatore "da inviare" sale.
+3. Disattiva la modalità aereo e non toccare niente.
+4. Entro pochi secondi gli ordini passano a sincronizzati da soli.
+
+Il pulsante di sincronizzazione resta per forzare il giro a mano. Gli ordini finiscono in un
+file SQLite: chiudendo l'app e riaprendola sono ancora lì, con il loro stato.
 
 ## Stato e prossimi passi
 
-La logica di sincronizzazione è completa e testata, e i dati sopravvivono alla chiusura
-dell'app. Cosa manca per un uso reale:
+La logica di sincronizzazione è completa e testata, i dati sopravvivono alla chiusura
+dell'app e la coda riparte da sola quando la rete torna. Cosa manca per un uso reale:
 
 - [x] Persistenza su SQLite con Drift — `DriftOrderStore` implementa gli stessi quattro
       contratti dell'implementazione in memoria; fuori dal livello dati è cambiata solo
       la composition root
-- [ ] Ascolto dei cambi di connettività con `connectivity_plus` per lanciare `drain()`
-      automaticamente
-- [ ] `WorkManager` su Android per drenare la coda anche ad app chiusa
+- [x] Ascolto dei cambi di connettività con `connectivity_plus` dietro `ConnectivityMonitor`:
+      `drain()` riparte sulla transizione offline ➜ online, con jitter
+- [x] `WorkManager` su Android per drenare la coda anche ad app chiusa — unico pezzo non
+      verificabile in CI, si osserva con `adb shell dumpsys jobscheduler` e `logcat`
 - [ ] Client HTTP reale al posto di `FakeRemoteApi`
 - [ ] Widget test sulla `OrdersPage` (le `Key` sono già in posizione)
+- [ ] Gestione dei conflitti fra dispositivi
 
 ## Licenza
 

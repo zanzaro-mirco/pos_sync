@@ -8,6 +8,7 @@ core/
   id_generator.dart            gli identificativi come dipendenza
   logger.dart                  la registrazione come dipendenza
   di.dart                      composition root
+  background_sync.dart         secondo ingresso: il lavoro di WorkManager
 features/orders/
   domain/                      nessuna dipendenza esterna, nemmeno da Flutter
     order.dart  order_line.dart  outbox_entry.dart  sync_status.dart
@@ -22,12 +23,15 @@ features/orders/
       drift_order_store.dart   implementa gli stessi quattro contratti su SQLite
     dto/order_dto.dart         rappresentazione di rete + mapper
     remote_api.dart            contratto + gerarchia sealed degli errori
+    connectivity_plus_monitor.dart  adattatore sul plugin di rete
     outbox_scheduler.dart      creazione della voce di coda
     orders_repository_impl.dart
   sync/
     backoff.dart               esponenziale con jitter
     retry_policy.dart          strategia: se e quando riprovare
     sync_worker.dart           orchestrazione
+    connectivity_monitor.dart  contratto sulla rete + monitor controllabile
+    auto_sync.dart             collega il ritorno della rete al drenaggio
   presentation/
     orders_cubit.dart  orders_state.dart  orders_page.dart
 ```
@@ -57,6 +61,7 @@ dopo la sincronizzazione. Ora la sorgente notifica i cambiamenti.
 | **Null Object** | `SilentLogger` | Nessun `if (logger != null)` sparso nel codice |
 | **Composition root** | `core/di.dart` | Unico punto che conosce le classi concrete |
 | **Idempotency key** | `Order.id` generato dal client | Il ritentativo dopo una risposta persa non crea duplicati |
+| **Adapter** | `ConnectivityPlusMonitor` | Il plugin di rete compare in un file solo, e mai nel livello di sincronizzazione |
 
 ## La persistenza
 
@@ -103,6 +108,80 @@ costruzione, e quindi incapace di dimostrare alcunché. Su SQLite è una transaz
 rollback, e c'è un test che la interrompe a metà — dopo l'inserimento della testata,
 prima delle righe — e verifica che non resti niente.
 
+## La connettività
+
+`SyncWorker.drain()` è sempre stato pubblico e senza timer, di proposito: sapere *cosa*
+mandare e sapere *quando* mandarlo cambiano per ragioni diverse. Mancava però chi lo
+chiamasse, e finché è mancato l'app era offline-first solo a metà — i dati sopravvivevano
+alla chiusura, la coda restava ferma.
+
+### Un booleano, non un elenco di interfacce
+
+`connectivity_plus` distingue Wi-Fi, dati mobili, ethernet, VPN e bluetooth. Il contratto
+`ConnectivityMonitor` espone un booleano, e la riduzione avviene nell'adattatore: al worker
+non serve sapere *come* si è connessi, gli serve sapere se vale la pena tentare.
+
+Il segnale resta grossolano — il plugin riporta l'interfaccia di rete, non se il backend
+risponde, e dietro un portale captivo dirà "online". È accettabile **grazie alla coda**: un
+invio che fallisce non perde niente, torna in coda e riparte con il backoff. Una verifica di
+raggiungibilità vera costerebbe una richiesta a ogni cambio di rete per anticipare un errore
+che il sistema già gestisce.
+
+### Il contratto sta con chi lo consuma, l'adattatore con gli altri adattatori
+
+`ConnectivityMonitor` vive in `sync/`, `ConnectivityPlusMonitor` in `data/`. Non è simmetria
+per il gusto della simmetria: è ciò che tiene `sync/` in Dart puro. La logica di
+sincronizzazione continua a girare nei test senza Flutter, senza database e senza rete, che
+è la proprietà su cui poggia tutto il resto della suite.
+
+### Due errori facili, entrambi chiusi da un test
+
+**Agire sull'evento invece che sulla transizione.** Passare da Wi-Fi a dati mobili produce un
+secondo `true`: cambia la rete, non lo stato. Senza il confronto con lo stato precedente ogni
+cambio di rete farebbe ripartire la coda. Il monitor *non* filtra i duplicati, ed è
+deliberato: nasconderli nell'adattatore vorrebbe dire che un monitor scritto male tornerebbe
+a produrre drenaggi doppi senza che nessun test se ne accorga.
+
+**Ignorare lo stato iniziale.** Un'app chiusa in una sala senza campo e riaperta sotto rete
+non riceve nessun *cambiamento*: la rete c'era già all'avvio. Trattare lo stato di partenza
+come una transizione è ciò che impedisce a una coda sopravvissuta alla sessione precedente di
+restare ferma per sempre.
+
+### Lo stesso jitter del backoff, su una scala diversa
+
+Il drenaggio parte dopo un ritardo casuale fino a cinque secondi. Quando il router di un
+locale torna su, tutti i dispositivi vedono la rete nello stesso istante: senza il ritardo
+partirebbero insieme, e il backend riceverebbe l'intero parco in una volta proprio nel momento
+in cui è appena tornato disponibile. È l'argomento del jitter nel backoff, applicato
+all'evento invece che al ritentativo.
+
+L'attesa è iniettata (`Sleeper`) per la stessa ragione per cui lo è l'orologio: un test che
+verifica il jitter non deve subirlo. Il doppio registra le durate richieste, e la suite
+asserisce che stiano nei limiti e che non siano tutte uguali.
+
+### Ad app chiusa: WorkManager
+
+`AutoSync` copre il caso in cui l'app è aperta. L'altro — chiusa in un posto senza campo,
+riaperta il giorno dopo — è un lavoro periodico di sistema vincolato alla presenza di rete:
+Android non sveglia il processo finché non c'è connettività, quindi non si paga un risveglio
+per scoprire di non poter fare niente.
+
+Il lavoro gira in un **motore Flutter separato**, dove non esiste niente di ciò che `main()`
+ha costruito: il grafo va montato da capo e il database richiuso alla fine. Da qui due
+conseguenze concrete:
+
+- `shareAcrossIsolates` di `drift_flutter` non aiuta, perché funziona solo dentro lo stesso
+  motore. La mutua esclusione torna a essere un problema di SQLite, ed è il motivo di
+  `journal_mode = WAL` e `busy_timeout` accanto a `foreign_keys` in `beforeOpen`.
+- Quando l'app è viva il lavoro può essere eseguito nel suo stesso processo. Il codice se ne
+  accorge, e non rimonta il grafo né chiude un database che non è suo.
+
+È il pezzo che **non è verificabile in CI**: gira solo su Android, solo se il sistema decide
+di eseguirlo, e non prima di quindici minuti. Ciò che è verificabile — che il lavoro venga
+pianificato e poi eseguito — si legge da `adb shell dumpsys jobscheduler` e da `logcat`. Il
+drenaggio che esegue è lo stesso testato dal resto della suite: il lavoro in background non
+contiene logica propria, e anche questo è deliberato.
+
 ## SOLID, punto per punto
 
 **Single Responsibility.** Il `SyncWorker` faceva cinque cose: orchestrare la coda,
@@ -141,6 +220,7 @@ punto solo.
 | Nessun test su mappatura e serializzazione | `order_dto_test.dart`: JSON incompleto, record inutilizzabili, andata e ritorno |
 | Politica di ritentativo verificabile solo passando dal worker | `retry_policy_test.dart` la testa da sola |
 | I contratti del deposito erano verificati solo di riflesso, attraverso repository e worker | `store_contract.dart`: una suite sola, girata su entrambe le implementazioni |
+| La connettività sarebbe stata verificabile solo mettendo il telefono in modalità aereo | `FakeConnectivityMonitor` e `Sleeper` iniettato: transizioni e jitter verificati in millisecondi |
 
 ### La suite di contratto
 
@@ -167,7 +247,17 @@ e riaperto il file.
   dispositivi in fusi diversi andrebbe salvato anche l'offset.
 - **Il file non è cifrato.** Su un dispositivo di sala perso, gli ordini sono leggibili.
   Drift supporta SQLCipher e sarebbe un cambio di esecutore, non di codice.
-- **Concorrenza gestita con un flag booleano** nel worker. Sufficiente per un singolo
-  isolate; con più isolate servirebbe un lock vero.
+- **Concorrenza gestita con un flag booleano** nel worker. Basta finché i drenaggi partono
+  dallo stesso isolate. Con il lavoro in background ce ne sono due e i due flag non si
+  vedono: se coincidessero, lo stesso ordine partirebbe due volte. Non produce duplicati —
+  l'idempotenza sull'id serve esattamente a questo — ma è una richiesta di rete sprecata, e
+  un lock vero starebbe in una riga di tabella invece che in un campo in memoria.
+- **Nessun ridrenaggio periodico ad app aperta.** Se un drenaggio riprogramma delle voci con
+  backoff, quelle restano ferme finché la rete non cambia di nuovo o finché non interviene il
+  lavoro di sistema. Un timer risolverebbe, al prezzo di risvegli inutili nel caso normale in
+  cui non c'è niente in coda.
+- **Il lavoro in background è solo Android.** Su iOS il modello è diverso — BGTaskScheduler
+  decide *se* eseguire, non *quando* — e prometterlo senza averlo verificato su un dispositivo
+  Apple sarebbe una dichiarazione non sostenuta.
 - **La gestione dei conflitti non c'è.** Funziona finché i dispositivi lavorano su
   dati disgiunti — ed è il primo limite che dichiaro quando presento il progetto.
