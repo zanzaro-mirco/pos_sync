@@ -1,4 +1,5 @@
 import '../domain/order.dart';
+import '../domain/order_conflict.dart';
 import '../domain/orders_snapshot.dart';
 import '../domain/outbox_entry.dart';
 
@@ -45,4 +46,15 @@ abstract interface class OutboxStore {
 /// i metodi ordinari.
 abstract interface class OrderOutboxTransaction {
   Future<void> saveOrderWithOutbox(Order order, OutboxEntry entry);
+}
+
+/// Persistenza dei conflitti aperti.
+///
+/// Contratto a sé come gli altri: chi mostra un conflitto non ha bisogno di
+/// poter scrivere ordini, e chi drena la coda non ha bisogno di leggerli. Lo
+/// implementa lo stesso deposito, come i quattro che ci sono già.
+abstract interface class ConflictStore {
+  Future<List<OrderConflict>> openConflicts();
+  Future<void> recordConflict(OrderConflict conflict);
+  Future<void> removeConflict(String id);
 }

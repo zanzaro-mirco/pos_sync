@@ -30,8 +30,39 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, OrderRow> {
   late final GeneratedColumn<String> status = GeneratedColumn<String>(
       'status', aliasedName, false,
       type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _stateMeta = const VerificationMeta('state');
   @override
-  List<GeneratedColumn> get $columns => [id, tableNumber, createdAt, status];
+  late final GeneratedColumn<String> state = GeneratedColumn<String>(
+      'state', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant<String>('aperto'));
+  static const VerificationMeta _stateRevisionCounterMeta =
+      const VerificationMeta('stateRevisionCounter');
+  @override
+  late final GeneratedColumn<int> stateRevisionCounter = GeneratedColumn<int>(
+      'state_revision_counter', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant<int>(0));
+  static const VerificationMeta _stateRevisionDeviceMeta =
+      const VerificationMeta('stateRevisionDevice');
+  @override
+  late final GeneratedColumn<String> stateRevisionDevice =
+      GeneratedColumn<String>('state_revision_device', aliasedName, false,
+          type: DriftSqlType.string,
+          requiredDuringInsert: false,
+          defaultValue: const Constant<String>(''));
+  @override
+  List<GeneratedColumn> get $columns => [
+        id,
+        tableNumber,
+        createdAt,
+        status,
+        state,
+        stateRevisionCounter,
+        stateRevisionDevice
+      ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -67,6 +98,22 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, OrderRow> {
     } else if (isInserting) {
       context.missing(_statusMeta);
     }
+    if (data.containsKey('state')) {
+      context.handle(
+          _stateMeta, state.isAcceptableOrUnknown(data['state']!, _stateMeta));
+    }
+    if (data.containsKey('state_revision_counter')) {
+      context.handle(
+          _stateRevisionCounterMeta,
+          stateRevisionCounter.isAcceptableOrUnknown(
+              data['state_revision_counter']!, _stateRevisionCounterMeta));
+    }
+    if (data.containsKey('state_revision_device')) {
+      context.handle(
+          _stateRevisionDeviceMeta,
+          stateRevisionDevice.isAcceptableOrUnknown(
+              data['state_revision_device']!, _stateRevisionDeviceMeta));
+    }
     return context;
   }
 
@@ -84,6 +131,13 @@ class $OrdersTable extends Orders with TableInfo<$OrdersTable, OrderRow> {
           .read(DriftSqlType.int, data['${effectivePrefix}created_at'])!,
       status: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}status'])!,
+      state: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}state'])!,
+      stateRevisionCounter: attachedDatabase.typeMapping.read(
+          DriftSqlType.int, data['${effectivePrefix}state_revision_counter'])!,
+      stateRevisionDevice: attachedDatabase.typeMapping.read(
+          DriftSqlType.string,
+          data['${effectivePrefix}state_revision_device'])!,
     );
   }
 
@@ -104,12 +158,28 @@ class OrderRow extends DataClass implements Insertable<OrderRow> {
   /// tronca non supera la stessa suite di uno che non tronca. Il fuso non
   /// viene conservato: si legge sempre come ora locale.
   final int createdAt;
+
+  /// Stato di sincronizzazione, locale a questo dispositivo.
   final String status;
+
+  /// Stato del tavolo, condiviso fra i dispositivi.
+  final String state;
+
+  /// Revisione dell'ultimo cambio di stato, in due colonne piatte.
+  ///
+  /// Un valore composto scritto in una colonna sola — `"7@tablet-a"` — sarebbe
+  /// più compatto e impossibile da ordinare in SQL. Separate si possono
+  /// confrontare e indicizzare.
+  final int stateRevisionCounter;
+  final String stateRevisionDevice;
   const OrderRow(
       {required this.id,
       required this.tableNumber,
       required this.createdAt,
-      required this.status});
+      required this.status,
+      required this.state,
+      required this.stateRevisionCounter,
+      required this.stateRevisionDevice});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -117,6 +187,9 @@ class OrderRow extends DataClass implements Insertable<OrderRow> {
     map['table_number'] = Variable<int>(tableNumber);
     map['created_at'] = Variable<int>(createdAt);
     map['status'] = Variable<String>(status);
+    map['state'] = Variable<String>(state);
+    map['state_revision_counter'] = Variable<int>(stateRevisionCounter);
+    map['state_revision_device'] = Variable<String>(stateRevisionDevice);
     return map;
   }
 
@@ -126,6 +199,9 @@ class OrderRow extends DataClass implements Insertable<OrderRow> {
       tableNumber: Value(tableNumber),
       createdAt: Value(createdAt),
       status: Value(status),
+      state: Value(state),
+      stateRevisionCounter: Value(stateRevisionCounter),
+      stateRevisionDevice: Value(stateRevisionDevice),
     );
   }
 
@@ -137,6 +213,11 @@ class OrderRow extends DataClass implements Insertable<OrderRow> {
       tableNumber: serializer.fromJson<int>(json['tableNumber']),
       createdAt: serializer.fromJson<int>(json['createdAt']),
       status: serializer.fromJson<String>(json['status']),
+      state: serializer.fromJson<String>(json['state']),
+      stateRevisionCounter:
+          serializer.fromJson<int>(json['stateRevisionCounter']),
+      stateRevisionDevice:
+          serializer.fromJson<String>(json['stateRevisionDevice']),
     );
   }
   @override
@@ -147,16 +228,28 @@ class OrderRow extends DataClass implements Insertable<OrderRow> {
       'tableNumber': serializer.toJson<int>(tableNumber),
       'createdAt': serializer.toJson<int>(createdAt),
       'status': serializer.toJson<String>(status),
+      'state': serializer.toJson<String>(state),
+      'stateRevisionCounter': serializer.toJson<int>(stateRevisionCounter),
+      'stateRevisionDevice': serializer.toJson<String>(stateRevisionDevice),
     };
   }
 
   OrderRow copyWith(
-          {String? id, int? tableNumber, int? createdAt, String? status}) =>
+          {String? id,
+          int? tableNumber,
+          int? createdAt,
+          String? status,
+          String? state,
+          int? stateRevisionCounter,
+          String? stateRevisionDevice}) =>
       OrderRow(
         id: id ?? this.id,
         tableNumber: tableNumber ?? this.tableNumber,
         createdAt: createdAt ?? this.createdAt,
         status: status ?? this.status,
+        state: state ?? this.state,
+        stateRevisionCounter: stateRevisionCounter ?? this.stateRevisionCounter,
+        stateRevisionDevice: stateRevisionDevice ?? this.stateRevisionDevice,
       );
   OrderRow copyWithCompanion(OrdersCompanion data) {
     return OrderRow(
@@ -165,6 +258,13 @@ class OrderRow extends DataClass implements Insertable<OrderRow> {
           data.tableNumber.present ? data.tableNumber.value : this.tableNumber,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       status: data.status.present ? data.status.value : this.status,
+      state: data.state.present ? data.state.value : this.state,
+      stateRevisionCounter: data.stateRevisionCounter.present
+          ? data.stateRevisionCounter.value
+          : this.stateRevisionCounter,
+      stateRevisionDevice: data.stateRevisionDevice.present
+          ? data.stateRevisionDevice.value
+          : this.stateRevisionDevice,
     );
   }
 
@@ -174,13 +274,17 @@ class OrderRow extends DataClass implements Insertable<OrderRow> {
           ..write('id: $id, ')
           ..write('tableNumber: $tableNumber, ')
           ..write('createdAt: $createdAt, ')
-          ..write('status: $status')
+          ..write('status: $status, ')
+          ..write('state: $state, ')
+          ..write('stateRevisionCounter: $stateRevisionCounter, ')
+          ..write('stateRevisionDevice: $stateRevisionDevice')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(id, tableNumber, createdAt, status);
+  int get hashCode => Object.hash(id, tableNumber, createdAt, status, state,
+      stateRevisionCounter, stateRevisionDevice);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -188,7 +292,10 @@ class OrderRow extends DataClass implements Insertable<OrderRow> {
           other.id == this.id &&
           other.tableNumber == this.tableNumber &&
           other.createdAt == this.createdAt &&
-          other.status == this.status);
+          other.status == this.status &&
+          other.state == this.state &&
+          other.stateRevisionCounter == this.stateRevisionCounter &&
+          other.stateRevisionDevice == this.stateRevisionDevice);
 }
 
 class OrdersCompanion extends UpdateCompanion<OrderRow> {
@@ -196,12 +303,18 @@ class OrdersCompanion extends UpdateCompanion<OrderRow> {
   final Value<int> tableNumber;
   final Value<int> createdAt;
   final Value<String> status;
+  final Value<String> state;
+  final Value<int> stateRevisionCounter;
+  final Value<String> stateRevisionDevice;
   final Value<int> rowid;
   const OrdersCompanion({
     this.id = const Value.absent(),
     this.tableNumber = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.status = const Value.absent(),
+    this.state = const Value.absent(),
+    this.stateRevisionCounter = const Value.absent(),
+    this.stateRevisionDevice = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   OrdersCompanion.insert({
@@ -209,6 +322,9 @@ class OrdersCompanion extends UpdateCompanion<OrderRow> {
     required int tableNumber,
     required int createdAt,
     required String status,
+    this.state = const Value.absent(),
+    this.stateRevisionCounter = const Value.absent(),
+    this.stateRevisionDevice = const Value.absent(),
     this.rowid = const Value.absent(),
   })  : id = Value(id),
         tableNumber = Value(tableNumber),
@@ -219,6 +335,9 @@ class OrdersCompanion extends UpdateCompanion<OrderRow> {
     Expression<int>? tableNumber,
     Expression<int>? createdAt,
     Expression<String>? status,
+    Expression<String>? state,
+    Expression<int>? stateRevisionCounter,
+    Expression<String>? stateRevisionDevice,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -226,6 +345,11 @@ class OrdersCompanion extends UpdateCompanion<OrderRow> {
       if (tableNumber != null) 'table_number': tableNumber,
       if (createdAt != null) 'created_at': createdAt,
       if (status != null) 'status': status,
+      if (state != null) 'state': state,
+      if (stateRevisionCounter != null)
+        'state_revision_counter': stateRevisionCounter,
+      if (stateRevisionDevice != null)
+        'state_revision_device': stateRevisionDevice,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -235,12 +359,18 @@ class OrdersCompanion extends UpdateCompanion<OrderRow> {
       Value<int>? tableNumber,
       Value<int>? createdAt,
       Value<String>? status,
+      Value<String>? state,
+      Value<int>? stateRevisionCounter,
+      Value<String>? stateRevisionDevice,
       Value<int>? rowid}) {
     return OrdersCompanion(
       id: id ?? this.id,
       tableNumber: tableNumber ?? this.tableNumber,
       createdAt: createdAt ?? this.createdAt,
       status: status ?? this.status,
+      state: state ?? this.state,
+      stateRevisionCounter: stateRevisionCounter ?? this.stateRevisionCounter,
+      stateRevisionDevice: stateRevisionDevice ?? this.stateRevisionDevice,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -260,6 +390,16 @@ class OrdersCompanion extends UpdateCompanion<OrderRow> {
     if (status.present) {
       map['status'] = Variable<String>(status.value);
     }
+    if (state.present) {
+      map['state'] = Variable<String>(state.value);
+    }
+    if (stateRevisionCounter.present) {
+      map['state_revision_counter'] = Variable<int>(stateRevisionCounter.value);
+    }
+    if (stateRevisionDevice.present) {
+      map['state_revision_device'] =
+          Variable<String>(stateRevisionDevice.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -273,6 +413,9 @@ class OrdersCompanion extends UpdateCompanion<OrderRow> {
           ..write('tableNumber: $tableNumber, ')
           ..write('createdAt: $createdAt, ')
           ..write('status: $status, ')
+          ..write('state: $state, ')
+          ..write('stateRevisionCounter: $stateRevisionCounter, ')
+          ..write('stateRevisionDevice: $stateRevisionDevice, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -300,6 +443,29 @@ class $OrderLinesTable extends OrderLines
   late final GeneratedColumn<int> position = GeneratedColumn<int>(
       'position', aliasedName, false,
       type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _lineIdMeta = const VerificationMeta('lineId');
+  @override
+  late final GeneratedColumn<String> lineId = GeneratedColumn<String>(
+      'line_id', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant<String>(''));
+  static const VerificationMeta _addedAtCounterMeta =
+      const VerificationMeta('addedAtCounter');
+  @override
+  late final GeneratedColumn<int> addedAtCounter = GeneratedColumn<int>(
+      'added_at_counter', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant<int>(0));
+  static const VerificationMeta _addedAtDeviceMeta =
+      const VerificationMeta('addedAtDevice');
+  @override
+  late final GeneratedColumn<String> addedAtDevice = GeneratedColumn<String>(
+      'added_at_device', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant<String>(''));
   static const VerificationMeta _productIdMeta =
       const VerificationMeta('productId');
   @override
@@ -325,8 +491,17 @@ class $OrderLinesTable extends OrderLines
       'unit_price_cents', aliasedName, false,
       type: DriftSqlType.int, requiredDuringInsert: true);
   @override
-  List<GeneratedColumn> get $columns =>
-      [orderId, position, productId, description, quantity, unitPriceCents];
+  List<GeneratedColumn> get $columns => [
+        orderId,
+        position,
+        lineId,
+        addedAtCounter,
+        addedAtDevice,
+        productId,
+        description,
+        quantity,
+        unitPriceCents
+      ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -348,6 +523,22 @@ class $OrderLinesTable extends OrderLines
           position.isAcceptableOrUnknown(data['position']!, _positionMeta));
     } else if (isInserting) {
       context.missing(_positionMeta);
+    }
+    if (data.containsKey('line_id')) {
+      context.handle(_lineIdMeta,
+          lineId.isAcceptableOrUnknown(data['line_id']!, _lineIdMeta));
+    }
+    if (data.containsKey('added_at_counter')) {
+      context.handle(
+          _addedAtCounterMeta,
+          addedAtCounter.isAcceptableOrUnknown(
+              data['added_at_counter']!, _addedAtCounterMeta));
+    }
+    if (data.containsKey('added_at_device')) {
+      context.handle(
+          _addedAtDeviceMeta,
+          addedAtDevice.isAcceptableOrUnknown(
+              data['added_at_device']!, _addedAtDeviceMeta));
     }
     if (data.containsKey('product_id')) {
       context.handle(_productIdMeta,
@@ -390,6 +581,12 @@ class $OrderLinesTable extends OrderLines
           .read(DriftSqlType.string, data['${effectivePrefix}order_id'])!,
       position: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}position'])!,
+      lineId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}line_id'])!,
+      addedAtCounter: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}added_at_counter'])!,
+      addedAtDevice: attachedDatabase.typeMapping.read(
+          DriftSqlType.string, data['${effectivePrefix}added_at_device'])!,
       productId: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}product_id'])!,
       description: attachedDatabase.typeMapping
@@ -416,6 +613,18 @@ class OrderLineRow extends DataClass implements Insertable<OrderLineRow> {
   /// hanno ordine. Senza questa colonna l'ordine delle righe dipenderebbe da
   /// come il motore decide di restituirle.
   final int position;
+
+  /// Identificativo della riga, stabile fra i dispositivi.
+  ///
+  /// Non è la chiave primaria e non lo diventa: la posizione dipende
+  /// dall'ordine locale e cambia a ogni fusione, l'id no. Serve all'unione
+  /// append-only, che senza di esso duplicherebbe la stessa riga a ogni
+  /// sincronizzazione.
+  final String lineId;
+
+  /// Revisione a cui la riga è stata aggiunta.
+  final int addedAtCounter;
+  final String addedAtDevice;
   final String productId;
   final String description;
   final int quantity;
@@ -423,6 +632,9 @@ class OrderLineRow extends DataClass implements Insertable<OrderLineRow> {
   const OrderLineRow(
       {required this.orderId,
       required this.position,
+      required this.lineId,
+      required this.addedAtCounter,
+      required this.addedAtDevice,
       required this.productId,
       required this.description,
       required this.quantity,
@@ -432,6 +644,9 @@ class OrderLineRow extends DataClass implements Insertable<OrderLineRow> {
     final map = <String, Expression>{};
     map['order_id'] = Variable<String>(orderId);
     map['position'] = Variable<int>(position);
+    map['line_id'] = Variable<String>(lineId);
+    map['added_at_counter'] = Variable<int>(addedAtCounter);
+    map['added_at_device'] = Variable<String>(addedAtDevice);
     map['product_id'] = Variable<String>(productId);
     map['description'] = Variable<String>(description);
     map['quantity'] = Variable<int>(quantity);
@@ -443,6 +658,9 @@ class OrderLineRow extends DataClass implements Insertable<OrderLineRow> {
     return OrderLinesCompanion(
       orderId: Value(orderId),
       position: Value(position),
+      lineId: Value(lineId),
+      addedAtCounter: Value(addedAtCounter),
+      addedAtDevice: Value(addedAtDevice),
       productId: Value(productId),
       description: Value(description),
       quantity: Value(quantity),
@@ -456,6 +674,9 @@ class OrderLineRow extends DataClass implements Insertable<OrderLineRow> {
     return OrderLineRow(
       orderId: serializer.fromJson<String>(json['orderId']),
       position: serializer.fromJson<int>(json['position']),
+      lineId: serializer.fromJson<String>(json['lineId']),
+      addedAtCounter: serializer.fromJson<int>(json['addedAtCounter']),
+      addedAtDevice: serializer.fromJson<String>(json['addedAtDevice']),
       productId: serializer.fromJson<String>(json['productId']),
       description: serializer.fromJson<String>(json['description']),
       quantity: serializer.fromJson<int>(json['quantity']),
@@ -468,6 +689,9 @@ class OrderLineRow extends DataClass implements Insertable<OrderLineRow> {
     return <String, dynamic>{
       'orderId': serializer.toJson<String>(orderId),
       'position': serializer.toJson<int>(position),
+      'lineId': serializer.toJson<String>(lineId),
+      'addedAtCounter': serializer.toJson<int>(addedAtCounter),
+      'addedAtDevice': serializer.toJson<String>(addedAtDevice),
       'productId': serializer.toJson<String>(productId),
       'description': serializer.toJson<String>(description),
       'quantity': serializer.toJson<int>(quantity),
@@ -478,6 +702,9 @@ class OrderLineRow extends DataClass implements Insertable<OrderLineRow> {
   OrderLineRow copyWith(
           {String? orderId,
           int? position,
+          String? lineId,
+          int? addedAtCounter,
+          String? addedAtDevice,
           String? productId,
           String? description,
           int? quantity,
@@ -485,6 +712,9 @@ class OrderLineRow extends DataClass implements Insertable<OrderLineRow> {
       OrderLineRow(
         orderId: orderId ?? this.orderId,
         position: position ?? this.position,
+        lineId: lineId ?? this.lineId,
+        addedAtCounter: addedAtCounter ?? this.addedAtCounter,
+        addedAtDevice: addedAtDevice ?? this.addedAtDevice,
         productId: productId ?? this.productId,
         description: description ?? this.description,
         quantity: quantity ?? this.quantity,
@@ -494,6 +724,13 @@ class OrderLineRow extends DataClass implements Insertable<OrderLineRow> {
     return OrderLineRow(
       orderId: data.orderId.present ? data.orderId.value : this.orderId,
       position: data.position.present ? data.position.value : this.position,
+      lineId: data.lineId.present ? data.lineId.value : this.lineId,
+      addedAtCounter: data.addedAtCounter.present
+          ? data.addedAtCounter.value
+          : this.addedAtCounter,
+      addedAtDevice: data.addedAtDevice.present
+          ? data.addedAtDevice.value
+          : this.addedAtDevice,
       productId: data.productId.present ? data.productId.value : this.productId,
       description:
           data.description.present ? data.description.value : this.description,
@@ -509,6 +746,9 @@ class OrderLineRow extends DataClass implements Insertable<OrderLineRow> {
     return (StringBuffer('OrderLineRow(')
           ..write('orderId: $orderId, ')
           ..write('position: $position, ')
+          ..write('lineId: $lineId, ')
+          ..write('addedAtCounter: $addedAtCounter, ')
+          ..write('addedAtDevice: $addedAtDevice, ')
           ..write('productId: $productId, ')
           ..write('description: $description, ')
           ..write('quantity: $quantity, ')
@@ -518,14 +758,17 @@ class OrderLineRow extends DataClass implements Insertable<OrderLineRow> {
   }
 
   @override
-  int get hashCode => Object.hash(
-      orderId, position, productId, description, quantity, unitPriceCents);
+  int get hashCode => Object.hash(orderId, position, lineId, addedAtCounter,
+      addedAtDevice, productId, description, quantity, unitPriceCents);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is OrderLineRow &&
           other.orderId == this.orderId &&
           other.position == this.position &&
+          other.lineId == this.lineId &&
+          other.addedAtCounter == this.addedAtCounter &&
+          other.addedAtDevice == this.addedAtDevice &&
           other.productId == this.productId &&
           other.description == this.description &&
           other.quantity == this.quantity &&
@@ -535,6 +778,9 @@ class OrderLineRow extends DataClass implements Insertable<OrderLineRow> {
 class OrderLinesCompanion extends UpdateCompanion<OrderLineRow> {
   final Value<String> orderId;
   final Value<int> position;
+  final Value<String> lineId;
+  final Value<int> addedAtCounter;
+  final Value<String> addedAtDevice;
   final Value<String> productId;
   final Value<String> description;
   final Value<int> quantity;
@@ -543,6 +789,9 @@ class OrderLinesCompanion extends UpdateCompanion<OrderLineRow> {
   const OrderLinesCompanion({
     this.orderId = const Value.absent(),
     this.position = const Value.absent(),
+    this.lineId = const Value.absent(),
+    this.addedAtCounter = const Value.absent(),
+    this.addedAtDevice = const Value.absent(),
     this.productId = const Value.absent(),
     this.description = const Value.absent(),
     this.quantity = const Value.absent(),
@@ -552,6 +801,9 @@ class OrderLinesCompanion extends UpdateCompanion<OrderLineRow> {
   OrderLinesCompanion.insert({
     required String orderId,
     required int position,
+    this.lineId = const Value.absent(),
+    this.addedAtCounter = const Value.absent(),
+    this.addedAtDevice = const Value.absent(),
     required String productId,
     required String description,
     required int quantity,
@@ -566,6 +818,9 @@ class OrderLinesCompanion extends UpdateCompanion<OrderLineRow> {
   static Insertable<OrderLineRow> custom({
     Expression<String>? orderId,
     Expression<int>? position,
+    Expression<String>? lineId,
+    Expression<int>? addedAtCounter,
+    Expression<String>? addedAtDevice,
     Expression<String>? productId,
     Expression<String>? description,
     Expression<int>? quantity,
@@ -575,6 +830,9 @@ class OrderLinesCompanion extends UpdateCompanion<OrderLineRow> {
     return RawValuesInsertable({
       if (orderId != null) 'order_id': orderId,
       if (position != null) 'position': position,
+      if (lineId != null) 'line_id': lineId,
+      if (addedAtCounter != null) 'added_at_counter': addedAtCounter,
+      if (addedAtDevice != null) 'added_at_device': addedAtDevice,
       if (productId != null) 'product_id': productId,
       if (description != null) 'description': description,
       if (quantity != null) 'quantity': quantity,
@@ -586,6 +844,9 @@ class OrderLinesCompanion extends UpdateCompanion<OrderLineRow> {
   OrderLinesCompanion copyWith(
       {Value<String>? orderId,
       Value<int>? position,
+      Value<String>? lineId,
+      Value<int>? addedAtCounter,
+      Value<String>? addedAtDevice,
       Value<String>? productId,
       Value<String>? description,
       Value<int>? quantity,
@@ -594,6 +855,9 @@ class OrderLinesCompanion extends UpdateCompanion<OrderLineRow> {
     return OrderLinesCompanion(
       orderId: orderId ?? this.orderId,
       position: position ?? this.position,
+      lineId: lineId ?? this.lineId,
+      addedAtCounter: addedAtCounter ?? this.addedAtCounter,
+      addedAtDevice: addedAtDevice ?? this.addedAtDevice,
       productId: productId ?? this.productId,
       description: description ?? this.description,
       quantity: quantity ?? this.quantity,
@@ -610,6 +874,15 @@ class OrderLinesCompanion extends UpdateCompanion<OrderLineRow> {
     }
     if (position.present) {
       map['position'] = Variable<int>(position.value);
+    }
+    if (lineId.present) {
+      map['line_id'] = Variable<String>(lineId.value);
+    }
+    if (addedAtCounter.present) {
+      map['added_at_counter'] = Variable<int>(addedAtCounter.value);
+    }
+    if (addedAtDevice.present) {
+      map['added_at_device'] = Variable<String>(addedAtDevice.value);
     }
     if (productId.present) {
       map['product_id'] = Variable<String>(productId.value);
@@ -634,6 +907,9 @@ class OrderLinesCompanion extends UpdateCompanion<OrderLineRow> {
     return (StringBuffer('OrderLinesCompanion(')
           ..write('orderId: $orderId, ')
           ..write('position: $position, ')
+          ..write('lineId: $lineId, ')
+          ..write('addedAtCounter: $addedAtCounter, ')
+          ..write('addedAtDevice: $addedAtDevice, ')
           ..write('productId: $productId, ')
           ..write('description: $description, ')
           ..write('quantity: $quantity, ')
@@ -996,18 +1272,583 @@ class OutboxCompanion extends UpdateCompanion<OutboxRow> {
   }
 }
 
+class $ConflictsTable extends Conflicts
+    with TableInfo<$ConflictsTable, ConflictRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ConflictsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+      'id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _orderIdMeta =
+      const VerificationMeta('orderId');
+  @override
+  late final GeneratedColumn<String> orderId = GeneratedColumn<String>(
+      'order_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _mineMeta = const VerificationMeta('mine');
+  @override
+  late final GeneratedColumn<String> mine = GeneratedColumn<String>(
+      'mine', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _theirsMeta = const VerificationMeta('theirs');
+  @override
+  late final GeneratedColumn<String> theirs = GeneratedColumn<String>(
+      'theirs', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _reasonMeta = const VerificationMeta('reason');
+  @override
+  late final GeneratedColumn<String> reason = GeneratedColumn<String>(
+      'reason', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _detectedAtMeta =
+      const VerificationMeta('detectedAt');
+  @override
+  late final GeneratedColumn<int> detectedAt = GeneratedColumn<int>(
+      'detected_at', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  @override
+  List<GeneratedColumn> get $columns =>
+      [id, orderId, mine, theirs, reason, detectedAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'conflicts';
+  @override
+  VerificationContext validateIntegrity(Insertable<ConflictRow> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('order_id')) {
+      context.handle(_orderIdMeta,
+          orderId.isAcceptableOrUnknown(data['order_id']!, _orderIdMeta));
+    } else if (isInserting) {
+      context.missing(_orderIdMeta);
+    }
+    if (data.containsKey('mine')) {
+      context.handle(
+          _mineMeta, mine.isAcceptableOrUnknown(data['mine']!, _mineMeta));
+    } else if (isInserting) {
+      context.missing(_mineMeta);
+    }
+    if (data.containsKey('theirs')) {
+      context.handle(_theirsMeta,
+          theirs.isAcceptableOrUnknown(data['theirs']!, _theirsMeta));
+    } else if (isInserting) {
+      context.missing(_theirsMeta);
+    }
+    if (data.containsKey('reason')) {
+      context.handle(_reasonMeta,
+          reason.isAcceptableOrUnknown(data['reason']!, _reasonMeta));
+    } else if (isInserting) {
+      context.missing(_reasonMeta);
+    }
+    if (data.containsKey('detected_at')) {
+      context.handle(
+          _detectedAtMeta,
+          detectedAt.isAcceptableOrUnknown(
+              data['detected_at']!, _detectedAtMeta));
+    } else if (isInserting) {
+      context.missing(_detectedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  ConflictRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ConflictRow(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}id'])!,
+      orderId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}order_id'])!,
+      mine: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}mine'])!,
+      theirs: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}theirs'])!,
+      reason: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}reason'])!,
+      detectedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}detected_at'])!,
+    );
+  }
+
+  @override
+  $ConflictsTable createAlias(String alias) {
+    return $ConflictsTable(attachedDatabase, alias);
+  }
+}
+
+class ConflictRow extends DataClass implements Insertable<ConflictRow> {
+  final String id;
+  final String orderId;
+
+  /// La versione locale, serializzata.
+  final String mine;
+
+  /// La versione arrivata dall'altro dispositivo, serializzata.
+  final String theirs;
+  final String reason;
+  final int detectedAt;
+  const ConflictRow(
+      {required this.id,
+      required this.orderId,
+      required this.mine,
+      required this.theirs,
+      required this.reason,
+      required this.detectedAt});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['order_id'] = Variable<String>(orderId);
+    map['mine'] = Variable<String>(mine);
+    map['theirs'] = Variable<String>(theirs);
+    map['reason'] = Variable<String>(reason);
+    map['detected_at'] = Variable<int>(detectedAt);
+    return map;
+  }
+
+  ConflictsCompanion toCompanion(bool nullToAbsent) {
+    return ConflictsCompanion(
+      id: Value(id),
+      orderId: Value(orderId),
+      mine: Value(mine),
+      theirs: Value(theirs),
+      reason: Value(reason),
+      detectedAt: Value(detectedAt),
+    );
+  }
+
+  factory ConflictRow.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ConflictRow(
+      id: serializer.fromJson<String>(json['id']),
+      orderId: serializer.fromJson<String>(json['orderId']),
+      mine: serializer.fromJson<String>(json['mine']),
+      theirs: serializer.fromJson<String>(json['theirs']),
+      reason: serializer.fromJson<String>(json['reason']),
+      detectedAt: serializer.fromJson<int>(json['detectedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'orderId': serializer.toJson<String>(orderId),
+      'mine': serializer.toJson<String>(mine),
+      'theirs': serializer.toJson<String>(theirs),
+      'reason': serializer.toJson<String>(reason),
+      'detectedAt': serializer.toJson<int>(detectedAt),
+    };
+  }
+
+  ConflictRow copyWith(
+          {String? id,
+          String? orderId,
+          String? mine,
+          String? theirs,
+          String? reason,
+          int? detectedAt}) =>
+      ConflictRow(
+        id: id ?? this.id,
+        orderId: orderId ?? this.orderId,
+        mine: mine ?? this.mine,
+        theirs: theirs ?? this.theirs,
+        reason: reason ?? this.reason,
+        detectedAt: detectedAt ?? this.detectedAt,
+      );
+  ConflictRow copyWithCompanion(ConflictsCompanion data) {
+    return ConflictRow(
+      id: data.id.present ? data.id.value : this.id,
+      orderId: data.orderId.present ? data.orderId.value : this.orderId,
+      mine: data.mine.present ? data.mine.value : this.mine,
+      theirs: data.theirs.present ? data.theirs.value : this.theirs,
+      reason: data.reason.present ? data.reason.value : this.reason,
+      detectedAt:
+          data.detectedAt.present ? data.detectedAt.value : this.detectedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ConflictRow(')
+          ..write('id: $id, ')
+          ..write('orderId: $orderId, ')
+          ..write('mine: $mine, ')
+          ..write('theirs: $theirs, ')
+          ..write('reason: $reason, ')
+          ..write('detectedAt: $detectedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(id, orderId, mine, theirs, reason, detectedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ConflictRow &&
+          other.id == this.id &&
+          other.orderId == this.orderId &&
+          other.mine == this.mine &&
+          other.theirs == this.theirs &&
+          other.reason == this.reason &&
+          other.detectedAt == this.detectedAt);
+}
+
+class ConflictsCompanion extends UpdateCompanion<ConflictRow> {
+  final Value<String> id;
+  final Value<String> orderId;
+  final Value<String> mine;
+  final Value<String> theirs;
+  final Value<String> reason;
+  final Value<int> detectedAt;
+  final Value<int> rowid;
+  const ConflictsCompanion({
+    this.id = const Value.absent(),
+    this.orderId = const Value.absent(),
+    this.mine = const Value.absent(),
+    this.theirs = const Value.absent(),
+    this.reason = const Value.absent(),
+    this.detectedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ConflictsCompanion.insert({
+    required String id,
+    required String orderId,
+    required String mine,
+    required String theirs,
+    required String reason,
+    required int detectedAt,
+    this.rowid = const Value.absent(),
+  })  : id = Value(id),
+        orderId = Value(orderId),
+        mine = Value(mine),
+        theirs = Value(theirs),
+        reason = Value(reason),
+        detectedAt = Value(detectedAt);
+  static Insertable<ConflictRow> custom({
+    Expression<String>? id,
+    Expression<String>? orderId,
+    Expression<String>? mine,
+    Expression<String>? theirs,
+    Expression<String>? reason,
+    Expression<int>? detectedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (orderId != null) 'order_id': orderId,
+      if (mine != null) 'mine': mine,
+      if (theirs != null) 'theirs': theirs,
+      if (reason != null) 'reason': reason,
+      if (detectedAt != null) 'detected_at': detectedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ConflictsCompanion copyWith(
+      {Value<String>? id,
+      Value<String>? orderId,
+      Value<String>? mine,
+      Value<String>? theirs,
+      Value<String>? reason,
+      Value<int>? detectedAt,
+      Value<int>? rowid}) {
+    return ConflictsCompanion(
+      id: id ?? this.id,
+      orderId: orderId ?? this.orderId,
+      mine: mine ?? this.mine,
+      theirs: theirs ?? this.theirs,
+      reason: reason ?? this.reason,
+      detectedAt: detectedAt ?? this.detectedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (orderId.present) {
+      map['order_id'] = Variable<String>(orderId.value);
+    }
+    if (mine.present) {
+      map['mine'] = Variable<String>(mine.value);
+    }
+    if (theirs.present) {
+      map['theirs'] = Variable<String>(theirs.value);
+    }
+    if (reason.present) {
+      map['reason'] = Variable<String>(reason.value);
+    }
+    if (detectedAt.present) {
+      map['detected_at'] = Variable<int>(detectedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ConflictsCompanion(')
+          ..write('id: $id, ')
+          ..write('orderId: $orderId, ')
+          ..write('mine: $mine, ')
+          ..write('theirs: $theirs, ')
+          ..write('reason: $reason, ')
+          ..write('detectedAt: $detectedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $DeviceIdentityTable extends DeviceIdentity
+    with TableInfo<$DeviceIdentityTable, DeviceRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $DeviceIdentityTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+      'id', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: false);
+  static const VerificationMeta _deviceIdMeta =
+      const VerificationMeta('deviceId');
+  @override
+  late final GeneratedColumn<String> deviceId = GeneratedColumn<String>(
+      'device_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _counterMeta =
+      const VerificationMeta('counter');
+  @override
+  late final GeneratedColumn<int> counter = GeneratedColumn<int>(
+      'counter', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant<int>(0));
+  @override
+  List<GeneratedColumn> get $columns => [id, deviceId, counter];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'device_identity';
+  @override
+  VerificationContext validateIntegrity(Insertable<DeviceRow> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('device_id')) {
+      context.handle(_deviceIdMeta,
+          deviceId.isAcceptableOrUnknown(data['device_id']!, _deviceIdMeta));
+    } else if (isInserting) {
+      context.missing(_deviceIdMeta);
+    }
+    if (data.containsKey('counter')) {
+      context.handle(_counterMeta,
+          counter.isAcceptableOrUnknown(data['counter']!, _counterMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  DeviceRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return DeviceRow(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
+      deviceId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}device_id'])!,
+      counter: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}counter'])!,
+    );
+  }
+
+  @override
+  $DeviceIdentityTable createAlias(String alias) {
+    return $DeviceIdentityTable(attachedDatabase, alias);
+  }
+}
+
+class DeviceRow extends DataClass implements Insertable<DeviceRow> {
+  /// Sempre 1: la riga è una sola e questo lo rende impossibile da sbagliare.
+  final int id;
+  final String deviceId;
+  final int counter;
+  const DeviceRow(
+      {required this.id, required this.deviceId, required this.counter});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['device_id'] = Variable<String>(deviceId);
+    map['counter'] = Variable<int>(counter);
+    return map;
+  }
+
+  DeviceIdentityCompanion toCompanion(bool nullToAbsent) {
+    return DeviceIdentityCompanion(
+      id: Value(id),
+      deviceId: Value(deviceId),
+      counter: Value(counter),
+    );
+  }
+
+  factory DeviceRow.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return DeviceRow(
+      id: serializer.fromJson<int>(json['id']),
+      deviceId: serializer.fromJson<String>(json['deviceId']),
+      counter: serializer.fromJson<int>(json['counter']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'deviceId': serializer.toJson<String>(deviceId),
+      'counter': serializer.toJson<int>(counter),
+    };
+  }
+
+  DeviceRow copyWith({int? id, String? deviceId, int? counter}) => DeviceRow(
+        id: id ?? this.id,
+        deviceId: deviceId ?? this.deviceId,
+        counter: counter ?? this.counter,
+      );
+  DeviceRow copyWithCompanion(DeviceIdentityCompanion data) {
+    return DeviceRow(
+      id: data.id.present ? data.id.value : this.id,
+      deviceId: data.deviceId.present ? data.deviceId.value : this.deviceId,
+      counter: data.counter.present ? data.counter.value : this.counter,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DeviceRow(')
+          ..write('id: $id, ')
+          ..write('deviceId: $deviceId, ')
+          ..write('counter: $counter')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, deviceId, counter);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is DeviceRow &&
+          other.id == this.id &&
+          other.deviceId == this.deviceId &&
+          other.counter == this.counter);
+}
+
+class DeviceIdentityCompanion extends UpdateCompanion<DeviceRow> {
+  final Value<int> id;
+  final Value<String> deviceId;
+  final Value<int> counter;
+  const DeviceIdentityCompanion({
+    this.id = const Value.absent(),
+    this.deviceId = const Value.absent(),
+    this.counter = const Value.absent(),
+  });
+  DeviceIdentityCompanion.insert({
+    this.id = const Value.absent(),
+    required String deviceId,
+    this.counter = const Value.absent(),
+  }) : deviceId = Value(deviceId);
+  static Insertable<DeviceRow> custom({
+    Expression<int>? id,
+    Expression<String>? deviceId,
+    Expression<int>? counter,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (deviceId != null) 'device_id': deviceId,
+      if (counter != null) 'counter': counter,
+    });
+  }
+
+  DeviceIdentityCompanion copyWith(
+      {Value<int>? id, Value<String>? deviceId, Value<int>? counter}) {
+    return DeviceIdentityCompanion(
+      id: id ?? this.id,
+      deviceId: deviceId ?? this.deviceId,
+      counter: counter ?? this.counter,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (deviceId.present) {
+      map['device_id'] = Variable<String>(deviceId.value);
+    }
+    if (counter.present) {
+      map['counter'] = Variable<int>(counter.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DeviceIdentityCompanion(')
+          ..write('id: $id, ')
+          ..write('deviceId: $deviceId, ')
+          ..write('counter: $counter')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
   late final $OrdersTable orders = $OrdersTable(this);
   late final $OrderLinesTable orderLines = $OrderLinesTable(this);
   late final $OutboxTable outbox = $OutboxTable(this);
+  late final $ConflictsTable conflicts = $ConflictsTable(this);
+  late final $DeviceIdentityTable deviceIdentity = $DeviceIdentityTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
   @override
   List<DatabaseSchemaEntity> get allSchemaEntities =>
-      [orders, orderLines, outbox];
+      [orders, orderLines, outbox, conflicts, deviceIdentity];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules(
         [
@@ -1027,6 +1868,9 @@ typedef $$OrdersTableCreateCompanionBuilder = OrdersCompanion Function({
   required int tableNumber,
   required int createdAt,
   required String status,
+  Value<String> state,
+  Value<int> stateRevisionCounter,
+  Value<String> stateRevisionDevice,
   Value<int> rowid,
 });
 typedef $$OrdersTableUpdateCompanionBuilder = OrdersCompanion Function({
@@ -1034,6 +1878,9 @@ typedef $$OrdersTableUpdateCompanionBuilder = OrdersCompanion Function({
   Value<int> tableNumber,
   Value<int> createdAt,
   Value<String> status,
+  Value<String> state,
+  Value<int> stateRevisionCounter,
+  Value<String> stateRevisionDevice,
   Value<int> rowid,
 });
 
@@ -1077,6 +1924,17 @@ class $$OrdersTableFilterComposer
   ColumnFilters<String> get status => $composableBuilder(
       column: $table.status, builder: (column) => ColumnFilters(column));
 
+  ColumnFilters<String> get state => $composableBuilder(
+      column: $table.state, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get stateRevisionCounter => $composableBuilder(
+      column: $table.stateRevisionCounter,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get stateRevisionDevice => $composableBuilder(
+      column: $table.stateRevisionDevice,
+      builder: (column) => ColumnFilters(column));
+
   Expression<bool> orderLinesRefs(
       Expression<bool> Function($$OrderLinesTableFilterComposer f) f) {
     final $$OrderLinesTableFilterComposer composer = $composerBuilder(
@@ -1119,6 +1977,17 @@ class $$OrdersTableOrderingComposer
 
   ColumnOrderings<String> get status => $composableBuilder(
       column: $table.status, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get state => $composableBuilder(
+      column: $table.state, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get stateRevisionCounter => $composableBuilder(
+      column: $table.stateRevisionCounter,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get stateRevisionDevice => $composableBuilder(
+      column: $table.stateRevisionDevice,
+      builder: (column) => ColumnOrderings(column));
 }
 
 class $$OrdersTableAnnotationComposer
@@ -1141,6 +2010,15 @@ class $$OrdersTableAnnotationComposer
 
   GeneratedColumn<String> get status =>
       $composableBuilder(column: $table.status, builder: (column) => column);
+
+  GeneratedColumn<String> get state =>
+      $composableBuilder(column: $table.state, builder: (column) => column);
+
+  GeneratedColumn<int> get stateRevisionCounter => $composableBuilder(
+      column: $table.stateRevisionCounter, builder: (column) => column);
+
+  GeneratedColumn<String> get stateRevisionDevice => $composableBuilder(
+      column: $table.stateRevisionDevice, builder: (column) => column);
 
   Expression<T> orderLinesRefs<T extends Object>(
       Expression<T> Function($$OrderLinesTableAnnotationComposer a) f) {
@@ -1191,6 +2069,9 @@ class $$OrdersTableTableManager extends RootTableManager<
             Value<int> tableNumber = const Value.absent(),
             Value<int> createdAt = const Value.absent(),
             Value<String> status = const Value.absent(),
+            Value<String> state = const Value.absent(),
+            Value<int> stateRevisionCounter = const Value.absent(),
+            Value<String> stateRevisionDevice = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
               OrdersCompanion(
@@ -1198,6 +2079,9 @@ class $$OrdersTableTableManager extends RootTableManager<
             tableNumber: tableNumber,
             createdAt: createdAt,
             status: status,
+            state: state,
+            stateRevisionCounter: stateRevisionCounter,
+            stateRevisionDevice: stateRevisionDevice,
             rowid: rowid,
           ),
           createCompanionCallback: ({
@@ -1205,6 +2089,9 @@ class $$OrdersTableTableManager extends RootTableManager<
             required int tableNumber,
             required int createdAt,
             required String status,
+            Value<String> state = const Value.absent(),
+            Value<int> stateRevisionCounter = const Value.absent(),
+            Value<String> stateRevisionDevice = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
               OrdersCompanion.insert(
@@ -1212,6 +2099,9 @@ class $$OrdersTableTableManager extends RootTableManager<
             tableNumber: tableNumber,
             createdAt: createdAt,
             status: status,
+            state: state,
+            stateRevisionCounter: stateRevisionCounter,
+            stateRevisionDevice: stateRevisionDevice,
             rowid: rowid,
           ),
           withReferenceMapper: (p0) => p0
@@ -1262,6 +2152,9 @@ typedef $$OrdersTableProcessedTableManager = ProcessedTableManager<
 typedef $$OrderLinesTableCreateCompanionBuilder = OrderLinesCompanion Function({
   required String orderId,
   required int position,
+  Value<String> lineId,
+  Value<int> addedAtCounter,
+  Value<String> addedAtDevice,
   required String productId,
   required String description,
   required int quantity,
@@ -1271,6 +2164,9 @@ typedef $$OrderLinesTableCreateCompanionBuilder = OrderLinesCompanion Function({
 typedef $$OrderLinesTableUpdateCompanionBuilder = OrderLinesCompanion Function({
   Value<String> orderId,
   Value<int> position,
+  Value<String> lineId,
+  Value<int> addedAtCounter,
+  Value<String> addedAtDevice,
   Value<String> productId,
   Value<String> description,
   Value<int> quantity,
@@ -1308,6 +2204,16 @@ class $$OrderLinesTableFilterComposer
   });
   ColumnFilters<int> get position => $composableBuilder(
       column: $table.position, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get lineId => $composableBuilder(
+      column: $table.lineId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get addedAtCounter => $composableBuilder(
+      column: $table.addedAtCounter,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get addedAtDevice => $composableBuilder(
+      column: $table.addedAtDevice, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<String> get productId => $composableBuilder(
       column: $table.productId, builder: (column) => ColumnFilters(column));
@@ -1355,6 +2261,17 @@ class $$OrderLinesTableOrderingComposer
   ColumnOrderings<int> get position => $composableBuilder(
       column: $table.position, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<String> get lineId => $composableBuilder(
+      column: $table.lineId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get addedAtCounter => $composableBuilder(
+      column: $table.addedAtCounter,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get addedAtDevice => $composableBuilder(
+      column: $table.addedAtDevice,
+      builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<String> get productId => $composableBuilder(
       column: $table.productId, builder: (column) => ColumnOrderings(column));
 
@@ -1400,6 +2317,15 @@ class $$OrderLinesTableAnnotationComposer
   });
   GeneratedColumn<int> get position =>
       $composableBuilder(column: $table.position, builder: (column) => column);
+
+  GeneratedColumn<String> get lineId =>
+      $composableBuilder(column: $table.lineId, builder: (column) => column);
+
+  GeneratedColumn<int> get addedAtCounter => $composableBuilder(
+      column: $table.addedAtCounter, builder: (column) => column);
+
+  GeneratedColumn<String> get addedAtDevice => $composableBuilder(
+      column: $table.addedAtDevice, builder: (column) => column);
 
   GeneratedColumn<String> get productId =>
       $composableBuilder(column: $table.productId, builder: (column) => column);
@@ -1459,6 +2385,9 @@ class $$OrderLinesTableTableManager extends RootTableManager<
           updateCompanionCallback: ({
             Value<String> orderId = const Value.absent(),
             Value<int> position = const Value.absent(),
+            Value<String> lineId = const Value.absent(),
+            Value<int> addedAtCounter = const Value.absent(),
+            Value<String> addedAtDevice = const Value.absent(),
             Value<String> productId = const Value.absent(),
             Value<String> description = const Value.absent(),
             Value<int> quantity = const Value.absent(),
@@ -1468,6 +2397,9 @@ class $$OrderLinesTableTableManager extends RootTableManager<
               OrderLinesCompanion(
             orderId: orderId,
             position: position,
+            lineId: lineId,
+            addedAtCounter: addedAtCounter,
+            addedAtDevice: addedAtDevice,
             productId: productId,
             description: description,
             quantity: quantity,
@@ -1477,6 +2409,9 @@ class $$OrderLinesTableTableManager extends RootTableManager<
           createCompanionCallback: ({
             required String orderId,
             required int position,
+            Value<String> lineId = const Value.absent(),
+            Value<int> addedAtCounter = const Value.absent(),
+            Value<String> addedAtDevice = const Value.absent(),
             required String productId,
             required String description,
             required int quantity,
@@ -1486,6 +2421,9 @@ class $$OrderLinesTableTableManager extends RootTableManager<
               OrderLinesCompanion.insert(
             orderId: orderId,
             position: position,
+            lineId: lineId,
+            addedAtCounter: addedAtCounter,
+            addedAtDevice: addedAtDevice,
             productId: productId,
             description: description,
             quantity: quantity,
@@ -1733,6 +2671,326 @@ typedef $$OutboxTableProcessedTableManager = ProcessedTableManager<
     (OutboxRow, BaseReferences<_$AppDatabase, $OutboxTable, OutboxRow>),
     OutboxRow,
     PrefetchHooks Function()>;
+typedef $$ConflictsTableCreateCompanionBuilder = ConflictsCompanion Function({
+  required String id,
+  required String orderId,
+  required String mine,
+  required String theirs,
+  required String reason,
+  required int detectedAt,
+  Value<int> rowid,
+});
+typedef $$ConflictsTableUpdateCompanionBuilder = ConflictsCompanion Function({
+  Value<String> id,
+  Value<String> orderId,
+  Value<String> mine,
+  Value<String> theirs,
+  Value<String> reason,
+  Value<int> detectedAt,
+  Value<int> rowid,
+});
+
+class $$ConflictsTableFilterComposer
+    extends Composer<_$AppDatabase, $ConflictsTable> {
+  $$ConflictsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get orderId => $composableBuilder(
+      column: $table.orderId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get mine => $composableBuilder(
+      column: $table.mine, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get theirs => $composableBuilder(
+      column: $table.theirs, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get reason => $composableBuilder(
+      column: $table.reason, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get detectedAt => $composableBuilder(
+      column: $table.detectedAt, builder: (column) => ColumnFilters(column));
+}
+
+class $$ConflictsTableOrderingComposer
+    extends Composer<_$AppDatabase, $ConflictsTable> {
+  $$ConflictsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get orderId => $composableBuilder(
+      column: $table.orderId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get mine => $composableBuilder(
+      column: $table.mine, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get theirs => $composableBuilder(
+      column: $table.theirs, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get reason => $composableBuilder(
+      column: $table.reason, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get detectedAt => $composableBuilder(
+      column: $table.detectedAt, builder: (column) => ColumnOrderings(column));
+}
+
+class $$ConflictsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $ConflictsTable> {
+  $$ConflictsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get orderId =>
+      $composableBuilder(column: $table.orderId, builder: (column) => column);
+
+  GeneratedColumn<String> get mine =>
+      $composableBuilder(column: $table.mine, builder: (column) => column);
+
+  GeneratedColumn<String> get theirs =>
+      $composableBuilder(column: $table.theirs, builder: (column) => column);
+
+  GeneratedColumn<String> get reason =>
+      $composableBuilder(column: $table.reason, builder: (column) => column);
+
+  GeneratedColumn<int> get detectedAt => $composableBuilder(
+      column: $table.detectedAt, builder: (column) => column);
+}
+
+class $$ConflictsTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $ConflictsTable,
+    ConflictRow,
+    $$ConflictsTableFilterComposer,
+    $$ConflictsTableOrderingComposer,
+    $$ConflictsTableAnnotationComposer,
+    $$ConflictsTableCreateCompanionBuilder,
+    $$ConflictsTableUpdateCompanionBuilder,
+    (ConflictRow, BaseReferences<_$AppDatabase, $ConflictsTable, ConflictRow>),
+    ConflictRow,
+    PrefetchHooks Function()> {
+  $$ConflictsTableTableManager(_$AppDatabase db, $ConflictsTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ConflictsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ConflictsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$ConflictsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<String> id = const Value.absent(),
+            Value<String> orderId = const Value.absent(),
+            Value<String> mine = const Value.absent(),
+            Value<String> theirs = const Value.absent(),
+            Value<String> reason = const Value.absent(),
+            Value<int> detectedAt = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              ConflictsCompanion(
+            id: id,
+            orderId: orderId,
+            mine: mine,
+            theirs: theirs,
+            reason: reason,
+            detectedAt: detectedAt,
+            rowid: rowid,
+          ),
+          createCompanionCallback: ({
+            required String id,
+            required String orderId,
+            required String mine,
+            required String theirs,
+            required String reason,
+            required int detectedAt,
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              ConflictsCompanion.insert(
+            id: id,
+            orderId: orderId,
+            mine: mine,
+            theirs: theirs,
+            reason: reason,
+            detectedAt: detectedAt,
+            rowid: rowid,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (
+                    e.readTable<$ConflictsTable, ConflictRow>(table),
+                    BaseReferences<_$AppDatabase, $ConflictsTable, ConflictRow>(
+                        db, table, e)
+                  ))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$ConflictsTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $ConflictsTable,
+    ConflictRow,
+    $$ConflictsTableFilterComposer,
+    $$ConflictsTableOrderingComposer,
+    $$ConflictsTableAnnotationComposer,
+    $$ConflictsTableCreateCompanionBuilder,
+    $$ConflictsTableUpdateCompanionBuilder,
+    (ConflictRow, BaseReferences<_$AppDatabase, $ConflictsTable, ConflictRow>),
+    ConflictRow,
+    PrefetchHooks Function()>;
+typedef $$DeviceIdentityTableCreateCompanionBuilder = DeviceIdentityCompanion
+    Function({
+  Value<int> id,
+  required String deviceId,
+  Value<int> counter,
+});
+typedef $$DeviceIdentityTableUpdateCompanionBuilder = DeviceIdentityCompanion
+    Function({
+  Value<int> id,
+  Value<String> deviceId,
+  Value<int> counter,
+});
+
+class $$DeviceIdentityTableFilterComposer
+    extends Composer<_$AppDatabase, $DeviceIdentityTable> {
+  $$DeviceIdentityTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get deviceId => $composableBuilder(
+      column: $table.deviceId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get counter => $composableBuilder(
+      column: $table.counter, builder: (column) => ColumnFilters(column));
+}
+
+class $$DeviceIdentityTableOrderingComposer
+    extends Composer<_$AppDatabase, $DeviceIdentityTable> {
+  $$DeviceIdentityTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get deviceId => $composableBuilder(
+      column: $table.deviceId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get counter => $composableBuilder(
+      column: $table.counter, builder: (column) => ColumnOrderings(column));
+}
+
+class $$DeviceIdentityTableAnnotationComposer
+    extends Composer<_$AppDatabase, $DeviceIdentityTable> {
+  $$DeviceIdentityTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get deviceId =>
+      $composableBuilder(column: $table.deviceId, builder: (column) => column);
+
+  GeneratedColumn<int> get counter =>
+      $composableBuilder(column: $table.counter, builder: (column) => column);
+}
+
+class $$DeviceIdentityTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $DeviceIdentityTable,
+    DeviceRow,
+    $$DeviceIdentityTableFilterComposer,
+    $$DeviceIdentityTableOrderingComposer,
+    $$DeviceIdentityTableAnnotationComposer,
+    $$DeviceIdentityTableCreateCompanionBuilder,
+    $$DeviceIdentityTableUpdateCompanionBuilder,
+    (DeviceRow, BaseReferences<_$AppDatabase, $DeviceIdentityTable, DeviceRow>),
+    DeviceRow,
+    PrefetchHooks Function()> {
+  $$DeviceIdentityTableTableManager(
+      _$AppDatabase db, $DeviceIdentityTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$DeviceIdentityTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$DeviceIdentityTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$DeviceIdentityTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            Value<String> deviceId = const Value.absent(),
+            Value<int> counter = const Value.absent(),
+          }) =>
+              DeviceIdentityCompanion(
+            id: id,
+            deviceId: deviceId,
+            counter: counter,
+          ),
+          createCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            required String deviceId,
+            Value<int> counter = const Value.absent(),
+          }) =>
+              DeviceIdentityCompanion.insert(
+            id: id,
+            deviceId: deviceId,
+            counter: counter,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (
+                    e.readTable<$DeviceIdentityTable, DeviceRow>(table),
+                    BaseReferences<_$AppDatabase, $DeviceIdentityTable,
+                        DeviceRow>(db, table, e)
+                  ))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$DeviceIdentityTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $DeviceIdentityTable,
+    DeviceRow,
+    $$DeviceIdentityTableFilterComposer,
+    $$DeviceIdentityTableOrderingComposer,
+    $$DeviceIdentityTableAnnotationComposer,
+    $$DeviceIdentityTableCreateCompanionBuilder,
+    $$DeviceIdentityTableUpdateCompanionBuilder,
+    (DeviceRow, BaseReferences<_$AppDatabase, $DeviceIdentityTable, DeviceRow>),
+    DeviceRow,
+    PrefetchHooks Function()>;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -1743,4 +3001,8 @@ class $AppDatabaseManager {
       $$OrderLinesTableTableManager(_db, _db.orderLines);
   $$OutboxTableTableManager get outbox =>
       $$OutboxTableTableManager(_db, _db.outbox);
+  $$ConflictsTableTableManager get conflicts =>
+      $$ConflictsTableTableManager(_db, _db.conflicts);
+  $$DeviceIdentityTableTableManager get deviceIdentity =>
+      $$DeviceIdentityTableTableManager(_db, _db.deviceIdentity);
 }

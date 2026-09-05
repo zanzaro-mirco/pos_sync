@@ -5,18 +5,22 @@ import 'package:get_it/get_it.dart';
 
 import '../features/orders/data/connectivity_plus_monitor.dart';
 import '../features/orders/data/local/app_database.dart';
+import '../features/orders/data/local/drift_device_store.dart';
 import '../features/orders/data/local/drift_order_store.dart';
 import '../features/orders/data/order_store.dart';
 import '../features/orders/data/orders_repository_impl.dart';
 import '../features/orders/data/remote_api.dart';
 import '../features/orders/domain/orders_repository.dart';
 import '../features/orders/sync/auto_sync.dart';
+import '../features/orders/sync/conflict_policy.dart';
 import '../features/orders/sync/connectivity_monitor.dart';
+import '../features/orders/sync/inbound_merger.dart';
 import '../features/orders/sync/sync_worker.dart';
 import 'background_sync.dart';
 import 'clock.dart';
 import 'id_generator.dart';
 import 'logger.dart';
+import 'logical_clock.dart';
 
 final GetIt sl = GetIt.instance;
 
@@ -41,6 +45,16 @@ void setUpDependencies({bool demoMode = true}) {
   sl.registerLazySingleton<OutboxStore>(() => sl<DriftOrderStore>());
   sl.registerLazySingleton<OrderOutboxTransaction>(() => sl<DriftOrderStore>());
   sl.registerLazySingleton<OrdersWatcher>(() => sl<DriftOrderStore>());
+  sl.registerLazySingleton<ConflictStore>(() => sl<DriftOrderStore>());
+
+  // L'identità del dispositivo e il suo contatore logico stanno nella stessa
+  // base dati degli ordini che numerano: un contatore che vive altrove può
+  // disallinearsi da ciò che ha numerato, e se torna indietro l'ordine totale
+  // su cui si regge la convergenza smette di essere tale.
+  sl.registerLazySingleton<LogicalClockStore>(() =>
+      DriftDeviceStore(sl<AppDatabase>(), idGenerator: sl<IdGenerator>()));
+  sl.registerLazySingleton<LogicalClock>(
+      () => LamportClock(sl<LogicalClockStore>()));
 
   sl.registerLazySingleton<Clock>(SystemClock.new);
   sl.registerLazySingleton<IdGenerator>(UuidGenerator.new);
@@ -60,8 +74,25 @@ void setUpDependencies({bool demoMode = true}) {
       outboxStore: sl<OutboxStore>(),
       transaction: sl<OrderOutboxTransaction>(),
       watcher: sl<OrdersWatcher>(),
+      conflictStore: sl<ConflictStore>(),
+      logicalClock: sl<LogicalClock>(),
       clock: sl<Clock>(),
       idGenerator: sl<IdGenerator>(),
+    ),
+  );
+
+  // Il verso di rientro. Registrato a parte e passato al worker: tirare,
+  // fondere e registrare i conflitti non sono compiti di chi orchestra la coda.
+  sl.registerLazySingleton<InboundMerger>(
+    () => InboundMerger(
+      orderStore: sl<OrderStore>(),
+      conflictStore: sl<ConflictStore>(),
+      api: sl<RemoteApi>(),
+      logicalClock: sl<LogicalClock>(),
+      policy: const OrderConflictPolicy(),
+      clock: sl<Clock>(),
+      idGenerator: sl<IdGenerator>(),
+      logger: sl<Logger>(),
     ),
   );
 
@@ -70,6 +101,7 @@ void setUpDependencies({bool demoMode = true}) {
       orderStore: sl<OrderStore>(),
       outboxStore: sl<OutboxStore>(),
       api: sl<RemoteApi>(),
+      inbound: sl<InboundMerger>(),
       clock: sl<Clock>(),
       logger: sl<Logger>(),
     ),

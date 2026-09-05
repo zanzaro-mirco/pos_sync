@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pos_sync/features/orders/data/local/app_database.dart';
 import 'package:pos_sync/features/orders/data/local/drift_order_store.dart';
 import 'package:pos_sync/features/orders/domain/order.dart';
+import 'package:pos_sync/features/orders/domain/order_state.dart';
 import 'package:pos_sync/features/orders/domain/orders_snapshot.dart';
 import 'package:pos_sync/features/orders/domain/outbox_entry.dart';
 import 'package:pos_sync/features/orders/domain/sync_status.dart';
@@ -69,6 +70,9 @@ void main() {
         db.into(db.orderLines).insert(const OrderLineRow(
               orderId: 'ordine-che-non-esiste',
               position: 0,
+              lineId: 'r-01',
+              addedAtCounter: 0,
+              addedAtDevice: '',
               productId: 'p-01',
               description: 'Caffè',
               quantity: 1,
@@ -174,6 +178,9 @@ void main() {
             id: 'o-1',
             tableNumber: 1,
             createdAt: t0.microsecondsSinceEpoch,
+            state: OrderState.aperto.name,
+            stateRevisionCounter: 0,
+            stateRevisionDevice: '',
             status: 'stato-inventato',
           ));
 
@@ -188,6 +195,9 @@ void main() {
             tableNumber: 1,
             createdAt: t0.microsecondsSinceEpoch,
             status: SyncStatus.pending.name,
+            state: OrderState.aperto.name,
+            stateRevisionCounter: 0,
+            stateRevisionDevice: '',
           ));
 
       final Order letto = (await store.allOrders()).single;

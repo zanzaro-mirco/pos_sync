@@ -43,12 +43,14 @@ void main() {
         status: stato,
         lines: const <OrderLine>[
           OrderLine(
+            id: 'r-01',
             productId: 'p-01',
             description: 'Caffè',
             quantity: 2,
             unitPriceCents: 120,
           ),
           OrderLine(
+            id: 'r-02',
             productId: 'p-02',
             description: 'Cornetto',
             quantity: 1,

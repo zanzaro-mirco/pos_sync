@@ -9,6 +9,7 @@ void main() {
     tableNumber: 7,
     lines: const <OrderLine>[
       OrderLine(
+        id: 'r-01',
         productId: 'p-01',
         description: 'Caffè',
         quantity: 2,

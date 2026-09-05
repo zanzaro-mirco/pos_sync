@@ -5,6 +5,7 @@ import '../data/remote_api.dart';
 import '../domain/order.dart';
 import '../domain/outbox_entry.dart';
 import '../domain/sync_status.dart';
+import 'inbound_merger.dart';
 import 'retry_policy.dart';
 
 /// Esito di un ciclo di drenaggio della coda.
@@ -14,6 +15,7 @@ class SyncResult {
     this.retried = 0,
     this.failed = 0,
     this.skipped = 0,
+    this.inbound = const MergeResult(),
   });
 
   /// Inviati con successo e rimossi dalla coda.
@@ -28,18 +30,22 @@ class SyncResult {
   /// Non ancora scaduti: il backoff non è trascorso.
   final int skipped;
 
-  bool get isIdle => sent == 0 && retried == 0 && failed == 0;
+  /// Cosa è arrivato dagli altri dispositivi.
+  final MergeResult inbound;
+
+  bool get isIdle => sent == 0 && retried == 0 && failed == 0 && inbound.isIdle;
 
   SyncResult operator +(SyncResult o) => SyncResult(
         sent: sent + o.sent,
         retried: retried + o.retried,
         failed: failed + o.failed,
         skipped: skipped + o.skipped,
+        inbound: inbound + o.inbound,
       );
 
   @override
   String toString() => 'SyncResult(sent: $sent, retried: $retried, '
-      'failed: $failed, skipped: $skipped)';
+      'failed: $failed, skipped: $skipped, inbound: $inbound)';
 }
 
 /// Drena la coda di uscita verso il backend.
@@ -58,11 +64,13 @@ class SyncWorker {
     required OutboxStore outboxStore,
     required RemoteApi api,
     RetryPolicy? retryPolicy,
+    InboundMerger? inbound,
     Clock clock = const SystemClock(),
     Logger logger = const SilentLogger(),
   })  : _orders = orderStore,
         _outbox = outboxStore,
         _api = api,
+        _inbound = inbound,
         _retryPolicy = retryPolicy ?? BackoffRetryPolicy(),
         _clock = clock,
         _logger = logger;
@@ -71,12 +79,23 @@ class SyncWorker {
   final OutboxStore _outbox;
   final RemoteApi _api;
   final RetryPolicy _retryPolicy;
+
+  /// Il verso di rientro. Opzionale: un dispositivo che non deve fondere
+  /// niente — la modalità demo a un solo dispositivo, o un test che guarda
+  /// solo la coda — non paga il costo di un giro di rete in più.
+  final InboundMerger? _inbound;
   final Clock _clock;
   final Logger _logger;
 
   bool _running = false;
 
-  /// Tenta di inviare tutte le voci in coda che sono scadute.
+  /// Un ciclo completo: prima spinge la coda, poi tira quello che hanno fatto
+  /// gli altri.
+  ///
+  /// L'ordine non è casuale. Spingere per primi fa sì che la fusione avvenga
+  /// contro un server che conosce già le modifiche locali: al contrario, ogni
+  /// giro produrrebbe una fusione basata su una versione del server più
+  /// vecchia di quella che stiamo per mandarle.
   ///
   /// Le chiamate concorrenti vengono ignorate: due drenaggi in parallelo
   /// invierebbero le stesse voci due volte.
@@ -89,6 +108,11 @@ class SyncWorker {
 
       for (final OutboxEntry entry in await _outbox.pendingOutbox()) {
         result = result + await _process(entry, now);
+      }
+
+      final InboundMerger? inbound = _inbound;
+      if (inbound != null) {
+        result = result + SyncResult(inbound: await inbound.pull());
       }
       return result;
     } finally {

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'core/di.dart';
-import 'features/orders/domain/order_line.dart';
+import 'features/orders/domain/order_line_draft.dart';
 import 'features/orders/domain/orders_repository.dart';
 import 'features/orders/presentation/orders_cubit.dart';
 import 'features/orders/presentation/orders_page.dart';
@@ -36,8 +36,8 @@ class PosSyncApp extends StatelessWidget {
             onAddOrder: (int tableNumber) =>
                 context.read<OrdersCubit>().addOrder(
               tableNumber: tableNumber,
-              lines: const <OrderLine>[
-                OrderLine(
+              lines: const <OrderLineDraft>[
+                OrderLineDraft(
                   productId: 'p-01',
                   description: 'Caffè',
                   quantity: 2,

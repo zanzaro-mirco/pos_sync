@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pos_sync/features/orders/domain/order.dart';
-import 'package:pos_sync/features/orders/domain/order_line.dart';
+import 'package:pos_sync/features/orders/domain/order_line_draft.dart';
 import 'package:pos_sync/features/orders/domain/sync_status.dart';
 
 import 'helpers/fixtures.dart';
@@ -27,27 +27,31 @@ void main() {
         await env.repository.createOrder(tableNumber: 1, lines: sampleLines);
     final Order b =
         await env.repository.createOrder(tableNumber: 2, lines: sampleLines);
+    // La sequenza è: ordine, riga, voce di coda. Le righe consumano un
+    // identificativo per una ragione precisa — è la chiave con cui due
+    // dispositivi riconoscono la stessa riga senza duplicarla.
     expect(a.id, 'id-1');
-    expect(b.id, 'id-3'); // id-2 è la voce di outbox
+    expect(a.lines.single.id, 'id-2');
+    expect(b.id, 'id-4');
   });
 
   test('rifiuta un ordine senza righe', () async {
     expect(
       () => env.repository
-          .createOrder(tableNumber: 1, lines: const <OrderLine>[]),
+          .createOrder(tableNumber: 1, lines: const <OrderLineDraft>[]),
       throwsArgumentError,
     );
   });
 
   test('le righe dell ordine non sono modificabili dall esterno', () async {
-    final List<OrderLine> mutabili = <OrderLine>[...sampleLines];
+    final List<OrderLineDraft> mutabili = <OrderLineDraft>[...sampleLines];
     final Order order =
         await env.repository.createOrder(tableNumber: 1, lines: mutabili);
 
     mutabili.clear(); // la lista originale cambia
     expect(order.lines.length, 1, reason: 'l ordine non deve risentirne');
     expect(
-      () => order.lines.add(sampleLines.first),
+      () => order.lines.add(order.lines.first),
       throwsUnsupportedError,
     );
   });

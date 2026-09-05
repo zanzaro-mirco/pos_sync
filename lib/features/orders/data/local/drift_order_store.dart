@@ -1,10 +1,15 @@
+import 'dart:convert';
+
 import 'package:drift/drift.dart';
 
 import '../../domain/order.dart';
+import '../../domain/order_conflict.dart';
 import '../../domain/order_line.dart';
 import '../../domain/orders_snapshot.dart';
 import '../../domain/outbox_entry.dart';
+import '../../domain/revision.dart';
 import '../../domain/sync_status.dart';
+import '../dto/order_dto.dart';
 import '../order_store.dart';
 import 'app_database.dart';
 
@@ -18,7 +23,12 @@ import 'app_database.dart';
 /// veloci e della modalità demo, e soprattutto resta il termine di paragone
 /// contro cui questa classe viene messa alla prova dalla stessa suite.
 class DriftOrderStore
-    implements OrderStore, OutboxStore, OrderOutboxTransaction, OrdersWatcher {
+    implements
+        OrderStore,
+        OutboxStore,
+        OrderOutboxTransaction,
+        OrdersWatcher,
+        ConflictStore {
   DriftOrderStore(this._db);
 
   final AppDatabase _db;
@@ -116,6 +126,7 @@ class DriftOrderStore
           _db.orders,
           _db.orderLines,
           _db.outbox,
+          _db.conflicts,
         },
       )
       .watch()
@@ -157,8 +168,35 @@ class DriftOrderStore
         return OrdersSnapshot(
           orders: await allOrders(),
           pending: await pendingCount(),
+          conflicts: await openConflicts(),
         );
       });
+
+  // --- ConflictStore ---
+
+  @override
+  Future<List<OrderConflict>> openConflicts() async {
+    final List<ConflictRow> rows = await (_db.select(_db.conflicts)
+          ..orderBy(<OrderClauseGenerator<$ConflictsTable>>[
+            ($ConflictsTable t) => OrderingTerm.asc(t.detectedAt),
+          ]))
+        .get();
+    return rows.map(_toConflict).toList();
+  }
+
+  @override
+  Future<void> recordConflict(OrderConflict conflict) async {
+    await _db
+        .into(_db.conflicts)
+        .insertOnConflictUpdate(_toConflictRow(conflict));
+  }
+
+  @override
+  Future<void> removeConflict(String id) async {
+    await (_db.delete(_db.conflicts)
+          ..where(($ConflictsTable t) => t.id.equals(id)))
+        .go();
+  }
 
   Future<List<Order>> _hydrate(List<OrderRow> rows) async {
     if (rows.isEmpty) return List<Order>.unmodifiable(const <Order>[]);
@@ -189,6 +227,9 @@ class DriftOrderStore
         tableNumber: order.tableNumber,
         createdAt: order.createdAt.microsecondsSinceEpoch,
         status: order.status.name,
+        state: order.state.name,
+        stateRevisionCounter: order.stateRevision.counter,
+        stateRevisionDevice: order.stateRevision.deviceId,
       );
 
   List<OrderLineRow> _toLineRows(Order order) {
@@ -198,6 +239,9 @@ class DriftOrderStore
       rows.add(OrderLineRow(
         orderId: order.id,
         position: i,
+        lineId: line.id,
+        addedAtCounter: line.addedAt.counter,
+        addedAtDevice: line.addedAt.deviceId,
         productId: line.productId,
         description: line.description,
         quantity: line.quantity,
@@ -213,14 +257,67 @@ class DriftOrderStore
         lines: lines.map(_toLine).toList(),
         createdAt: DateTime.fromMicrosecondsSinceEpoch(row.createdAt),
         status: _statusFrom(row.status),
+        state: parseOrderState(row.state),
+        stateRevision: Revision(
+          counter: row.stateRevisionCounter,
+          deviceId: row.stateRevisionDevice,
+        ),
       );
 
   OrderLine _toLine(OrderLineRow row) => OrderLine(
+        id: row.lineId,
         productId: row.productId,
         description: row.description,
         quantity: row.quantity,
         unitPriceCents: row.unitPriceCents,
+        addedAt: Revision(
+          counter: row.addedAtCounter,
+          deviceId: row.addedAtDevice,
+        ),
       );
+
+  ConflictRow _toConflictRow(OrderConflict conflict) => ConflictRow(
+        id: conflict.id,
+        orderId: conflict.orderId,
+        mine: _encode(conflict.mine),
+        theirs: _encode(conflict.theirs),
+        reason: conflict.reason,
+        detectedAt: conflict.detectedAt.microsecondsSinceEpoch,
+      );
+
+  OrderConflict _toConflict(ConflictRow row) => OrderConflict(
+        id: row.id,
+        mine: _decode(row.mine),
+        theirs: _decode(row.theirs),
+        reason: row.reason,
+        detectedAt: DateTime.fromMicrosecondsSinceEpoch(row.detectedAt),
+      );
+
+  static String _encode(Order order) =>
+      jsonEncode(OrderDto.fromDomain(order).toJson());
+
+  /// Un conflitto illeggibile non deve impedire di aprire la schermata.
+  ///
+  /// Se il JSON è rovinato si restituisce un ordine vuoto con l'identificativo
+  /// giusto: l'operatore vede che qualcosa non torna e può chiudere il
+  /// conflitto, invece di trovarsi la lista degli ordini che non si carica.
+  static Order _decode(String raw) {
+    try {
+      final Object? json = jsonDecode(raw);
+      if (json is Map<String, dynamic>) {
+        final Order? order = OrderDto.fromJson(json).toDomain();
+        if (order != null) return order;
+      }
+    } on FormatException {
+      // Cade nel ripiego qui sotto.
+    }
+    return Order(
+      id: '',
+      tableNumber: 0,
+      lines: const <OrderLine>[],
+      createdAt: DateTime.fromMicrosecondsSinceEpoch(0),
+    );
+  }
 
   OutboxRow _toOutboxRow(OutboxEntry entry) => OutboxRow(
         id: entry.id,

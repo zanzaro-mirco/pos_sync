@@ -19,11 +19,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pos_sync/core/clock.dart';
 import 'package:pos_sync/core/id_generator.dart';
 import 'package:pos_sync/core/logger.dart';
+import 'package:pos_sync/core/logical_clock.dart';
 import 'package:pos_sync/features/orders/data/local/app_database.dart';
 import 'package:pos_sync/features/orders/data/local/drift_order_store.dart';
 import 'package:pos_sync/features/orders/data/orders_repository_impl.dart';
 import 'package:pos_sync/features/orders/data/remote_api.dart';
 import 'package:pos_sync/features/orders/domain/order.dart';
+import 'package:pos_sync/features/orders/domain/order_line.dart';
 import 'package:pos_sync/features/orders/domain/orders_snapshot.dart';
 import 'package:pos_sync/features/orders/domain/sync_status.dart';
 import 'package:pos_sync/features/orders/sync/sync_worker.dart';
@@ -48,6 +50,8 @@ void main() {
       outboxStore: store,
       transaction: store,
       watcher: store,
+      conflictStore: store,
+      logicalClock: LamportClock(InMemoryLogicalClockStore()),
       clock: clock,
       idGenerator: SequentialIdGenerator(),
     );
@@ -70,7 +74,7 @@ void main() {
 
   test('un ordine creato dal repository finisce nel database', () async {
     final Order creato =
-        await repository.createOrder(tableNumber: 4, lines: unaRiga);
+        await repository.createOrder(tableNumber: 4, lines: unaRigaBozza);
 
     expect((await store.allOrders()).single.id, creato.id);
     expect((await store.pendingOutbox()).single.orderId, creato.id);
@@ -80,7 +84,7 @@ void main() {
   test('il worker svuota la coda e segna l ordine come sincronizzato',
       () async {
     final Order creato =
-        await repository.createOrder(tableNumber: 4, lines: unaRiga);
+        await repository.createOrder(tableNumber: 4, lines: unaRigaBozza);
 
     final SyncResult esito = await worker.drain();
 
@@ -94,7 +98,7 @@ void main() {
       () async {
     api.online = false;
     final Order creato =
-        await repository.createOrder(tableNumber: 4, lines: unaRiga);
+        await repository.createOrder(tableNumber: 4, lines: unaRigaBozza);
 
     await worker.drain();
     expect((await store.pendingOutbox()).single.attempts, 1);
@@ -116,7 +120,7 @@ void main() {
     addTearDown(sub.cancel);
     await pumpEventQueue();
 
-    await repository.createOrder(tableNumber: 4, lines: unaRiga);
+    await repository.createOrder(tableNumber: 4, lines: unaRigaBozza);
     await pumpEventQueue();
     expect(visti.last.orders.length, 1);
     expect(visti.last.pending, 1);
@@ -144,7 +148,7 @@ void main() {
 
     monta(AppDatabase(NativeDatabase(file)));
     final Order creato =
-        await repository.createOrder(tableNumber: 9, lines: treRighe);
+        await repository.createOrder(tableNumber: 9, lines: treRigheBozza);
     await worker.drain();
     await db.close();
 
@@ -153,7 +157,16 @@ void main() {
 
     expect(riletto.id, creato.id);
     expect(riletto.status, SyncStatus.synced);
-    expect(riletto.lines, treRighe);
+    // Il confronto è su ciò che è stato ordinato, non sulle righe intere: id e
+    // revisione li assegna il repository al volo, e metterli in una costante
+    // significherebbe scriverli due volte e verificare la copia.
+    expect(
+      riletto.lines.map((OrderLine l) => l.description),
+      <String>['Antipasto', 'Primo', 'Dolce'],
+    );
+    expect(riletto.totalCents, creato.totalCents);
+    expect(riletto.lines, creato.lines,
+        reason: 'id e revisione devono sopravvivere alla riapertura');
     expect(await repository.pendingCount(), 0);
   });
 }

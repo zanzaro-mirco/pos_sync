@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../domain/order.dart';
+import '../domain/order_conflict.dart';
 import '../domain/orders_snapshot.dart';
 import '../domain/outbox_entry.dart';
 import 'order_store.dart';
@@ -16,9 +17,15 @@ import 'order_store.dart';
 /// demo. La versione su SQLite implementerà le stesse interfacce senza che il
 /// resto dell'applicazione se ne accorga.
 class InMemoryOrderStore
-    implements OrderStore, OutboxStore, OrderOutboxTransaction, OrdersWatcher {
+    implements
+        OrderStore,
+        OutboxStore,
+        OrderOutboxTransaction,
+        OrdersWatcher,
+        ConflictStore {
   final Map<String, Order> _orders = <String, Order>{};
   final Map<String, OutboxEntry> _outbox = <String, OutboxEntry>{};
+  final Map<String, OrderConflict> _conflicts = <String, OrderConflict>{};
   final StreamController<OrdersSnapshot> _controller =
       StreamController<OrdersSnapshot>.broadcast();
 
@@ -28,8 +35,18 @@ class InMemoryOrderStore
     return List<Order>.unmodifiable(list);
   }
 
-  OrdersSnapshot get _snapshot =>
-      OrdersSnapshot(orders: _sorted, pending: _outbox.length);
+  OrdersSnapshot get _snapshot => OrdersSnapshot(
+        orders: _sorted,
+        pending: _outbox.length,
+        conflicts: _conflittiOrdinati,
+      );
+
+  List<OrderConflict> get _conflittiOrdinati {
+    final List<OrderConflict> list = _conflicts.values.toList()
+      ..sort((OrderConflict a, OrderConflict b) =>
+          a.detectedAt.compareTo(b.detectedAt));
+    return List<OrderConflict>.unmodifiable(list);
+  }
 
   void _emit() {
     if (!_controller.isClosed) _controller.add(_snapshot);
@@ -96,6 +113,23 @@ class InMemoryOrderStore
     // che comprende entrambe le scritture.
     _orders[order.id] = order;
     _outbox[entry.id] = entry;
+    _emit();
+  }
+
+  // --- ConflictStore ---
+
+  @override
+  Future<List<OrderConflict>> openConflicts() async => _conflittiOrdinati;
+
+  @override
+  Future<void> recordConflict(OrderConflict conflict) async {
+    _conflicts[conflict.id] = conflict;
+    _emit();
+  }
+
+  @override
+  Future<void> removeConflict(String id) async {
+    _conflicts.remove(id);
     _emit();
   }
 

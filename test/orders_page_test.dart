@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pos_sync/features/orders/domain/order.dart';
+import 'package:pos_sync/features/orders/domain/order_conflict.dart';
 import 'package:pos_sync/features/orders/domain/order_line.dart';
+import 'package:pos_sync/features/orders/domain/order_state.dart';
+import 'package:pos_sync/features/orders/presentation/conflict_card.dart';
 import 'package:pos_sync/features/orders/domain/sync_status.dart';
 import 'package:pos_sync/features/orders/presentation/order_tile.dart';
 import 'package:pos_sync/features/orders/presentation/orders_cubit.dart';
@@ -19,6 +22,7 @@ void main() {
         status: stato,
         lines: const <OrderLine>[
           OrderLine(
+            id: 'r-01',
             productId: 'p-01',
             description: 'Caffè',
             quantity: 2,
@@ -225,6 +229,109 @@ void main() {
       }
 
       handle.dispose();
+    });
+  });
+
+  group('OrdersPage · i conflitti', () {
+    OrderConflict conflitto(String id, {int tavolo = 7}) => OrderConflict(
+          id: id,
+          mine: ordine(tavolo).copyWith(state: OrderState.pagato),
+          theirs: ordine(tavolo),
+          reason: 'Il tavolo $tavolo risulta pagato, ma 1 articolo non era '
+              'nel conto',
+          detectedAt: DateTime(2026, 9, 5, 20),
+        );
+
+    OrdersState conConflitti(List<OrderConflict> conflitti) => OrdersState(
+          status: OrdersStatus.ready,
+          orders: <Order>[ordine(7)],
+          conflicts: conflitti,
+        );
+
+    testWidgets('senza conflitti non c è nessun avviso',
+        (WidgetTester tester) async {
+      await mostra(
+        tester,
+        OrdersState(status: OrdersStatus.ready, orders: <Order>[ordine(7)]),
+      );
+
+      expect(find.byKey(const Key('conflict-badge')), findsNothing);
+      expect(find.byType(ConflictCard), findsNothing);
+    });
+
+    testWidgets('il contatore compare accanto a quello delle pendenze',
+        (WidgetTester tester) async {
+      await mostra(tester, conConflitti(<OrderConflict>[conflitto('c-1')]));
+
+      expect(find.byKey(const Key('conflict-badge')), findsOneWidget);
+    });
+
+    testWidgets('la scheda spiega il problema e mostra le due versioni',
+        (WidgetTester tester) async {
+      await mostra(tester, conConflitti(<OrderConflict>[conflitto('c-1')]));
+
+      expect(find.byKey(const Key('conflict-c-1')), findsOneWidget);
+      expect(
+        find.textContaining('non era nel conto'),
+        findsOneWidget,
+        reason: "chi decide deve sapere perché gli si sta chiedendo",
+      );
+      expect(find.textContaining('Qui: pagato'), findsOneWidget);
+      expect(find.textContaining("Sull'altro dispositivo: aperto"),
+          findsOneWidget);
+    });
+
+    testWidgets('i conflitti stanno sopra gli ordini',
+        (WidgetTester tester) async {
+      // In fondo alla lista non li vedrebbe nessuno, ed è l'unica cosa in
+      // questa schermata che chiede di fare qualcosa.
+      await mostra(tester, conConflitti(<OrderConflict>[conflitto('c-1')]));
+
+      final double schedaY = tester.getTopLeft(find.byType(ConflictCard)).dy;
+      final double ordineY = tester.getTopLeft(find.byType(OrderTile)).dy;
+      expect(schedaY, lessThan(ordineY));
+    });
+
+    testWidgets('i due pulsanti arrivano al cubit con la scelta giusta',
+        (WidgetTester tester) async {
+      final CubitPreimpostato cubit = await mostra(
+        tester,
+        conConflitti(<OrderConflict>[conflitto('c-1')]),
+      );
+
+      await tester.tap(find.byKey(const Key('conflict-mine-c-1')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('conflict-theirs-c-1')));
+      await tester.pump();
+
+      expect(cubit.conflittiRisolti, <(String, ConflictChoice)>[
+        ('c-1', ConflictChoice.mine),
+        ('c-1', ConflictChoice.theirs),
+      ]);
+    });
+
+    testWidgets('i pulsanti dicono cosa fanno, non da dove viene la versione',
+        (WidgetTester tester) async {
+      // «Tieni la mia» costringe chi decide a ricostruire quale sia la propria
+      // e cosa comporti; qui la conseguenza è scritta sul pulsante.
+      await mostra(tester, conConflitti(<OrderConflict>[conflitto('c-1')]));
+
+      expect(find.text('Tieni il pagamento'), findsOneWidget);
+      expect(find.text('Tieni il tavolo aperto'), findsOneWidget);
+    });
+
+    testWidgets('un conflitto si vede anche senza ordini in lista',
+        (WidgetTester tester) async {
+      await mostra(
+        tester,
+        OrdersState(
+          status: OrdersStatus.ready,
+          conflicts: <OrderConflict>[conflitto('c-1')],
+        ),
+      );
+
+      expect(find.byKey(const Key('empty-text')), findsNothing);
+      expect(find.byType(ConflictCard), findsOneWidget);
     });
   });
 }

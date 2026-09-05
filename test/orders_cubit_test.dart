@@ -1,6 +1,6 @@
 import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pos_sync/features/orders/domain/order_line.dart';
+import 'package:pos_sync/features/orders/domain/order_line_draft.dart';
 import 'package:pos_sync/features/orders/domain/sync_status.dart';
 import 'package:pos_sync/features/orders/presentation/orders_cubit.dart';
 import 'package:pos_sync/features/orders/presentation/orders_state.dart';
@@ -79,7 +79,7 @@ void main() {
     build: build,
     act: (OrdersCubit cubit) async {
       cubit.start();
-      await cubit.addOrder(tableNumber: 1, lines: const <OrderLine>[]);
+      await cubit.addOrder(tableNumber: 1, lines: const <OrderLineDraft>[]);
     },
     verify: (OrdersCubit cubit) {
       expect(cubit.state.status, OrdersStatus.error);

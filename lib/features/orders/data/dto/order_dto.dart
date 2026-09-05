@@ -1,46 +1,82 @@
 import '../../domain/order.dart';
 import '../../domain/order_line.dart';
+import '../../domain/order_state.dart';
+import '../../domain/revision.dart';
+
+/// Rappresentazione di rete di una revisione.
+///
+/// Due campi piatti invece di un oggetto annidato: una revisione è una coppia
+/// di valori primitivi e annidarla costerebbe un livello di parsing in più per
+/// niente.
+class RevisionDto {
+  const RevisionDto({required this.counter, required this.deviceId});
+
+  factory RevisionDto.fromDomain(Revision revision) =>
+      RevisionDto(counter: revision.counter, deviceId: revision.deviceId);
+
+  final int counter;
+  final String deviceId;
+
+  Revision toDomain() => Revision(counter: counter, deviceId: deviceId);
+}
 
 /// Rappresentazione di rete di una riga d'ordine.
 class OrderLineDto {
   const OrderLineDto({
+    required this.id,
     required this.productId,
     required this.description,
     required this.quantity,
     required this.unitPriceCents,
+    required this.addedAtCounter,
+    required this.addedAtDevice,
   });
 
   factory OrderLineDto.fromDomain(OrderLine line) => OrderLineDto(
+        id: line.id,
         productId: line.productId,
         description: line.description,
         quantity: line.quantity,
         unitPriceCents: line.unitPriceCents,
+        addedAtCounter: line.addedAt.counter,
+        addedAtDevice: line.addedAt.deviceId,
       );
 
   factory OrderLineDto.fromJson(Map<String, dynamic> json) => OrderLineDto(
+        id: json['id'] as String? ?? '',
         productId: json['productId'] as String? ?? '',
         description: json['description'] as String? ?? '',
         quantity: json['quantity'] as int? ?? 0,
         unitPriceCents: json['unitPriceCents'] as int? ?? 0,
+        addedAtCounter: json['addedAtCounter'] as int? ?? 0,
+        addedAtDevice: json['addedAtDevice'] as String? ?? '',
       );
 
+  final String id;
   final String productId;
   final String description;
   final int quantity;
   final int unitPriceCents;
+  final int addedAtCounter;
+  final String addedAtDevice;
 
   Map<String, dynamic> toJson() => <String, dynamic>{
+        'id': id,
         'productId': productId,
         'description': description,
         'quantity': quantity,
         'unitPriceCents': unitPriceCents,
+        'addedAtCounter': addedAtCounter,
+        'addedAtDevice': addedAtDevice,
       };
 
   OrderLine toDomain() => OrderLine(
+        id: id,
         productId: productId,
         description: description,
         quantity: quantity,
         unitPriceCents: unitPriceCents,
+        addedAt: Revision(counter: addedAtCounter, deviceId: addedAtDevice),
       );
 }
 
@@ -50,12 +86,20 @@ class OrderLineDto {
 /// nullable perché un backend può omettere o rinominare qualcosa, e questo non
 /// deve far crashare l'app. Qui si assorbono le imperfezioni del contratto, in
 /// un punto solo.
+///
+/// Attraversa la rete lo stato **condiviso** del tavolo con la sua revisione.
+/// Non lo attraversa `SyncStatus`, che dice se *questo* dispositivo è riuscito
+/// a mandare l'ordine: è un fatto locale, e spedirlo significherebbe che il
+/// giudizio di un dispositivo sulla propria connessione diventa quello di tutti.
 class OrderDto {
   const OrderDto({
     required this.id,
     required this.tableNumber,
     required this.createdAtIso,
     required this.lines,
+    this.state = 'aperto',
+    this.stateRevisionCounter = 0,
+    this.stateRevisionDevice = '',
   });
 
   factory OrderDto.fromDomain(Order order) => OrderDto(
@@ -63,6 +107,9 @@ class OrderDto {
         tableNumber: order.tableNumber,
         createdAtIso: order.createdAt.toIso8601String(),
         lines: order.lines.map(OrderLineDto.fromDomain).toList(),
+        state: order.state.name,
+        stateRevisionCounter: order.stateRevision.counter,
+        stateRevisionDevice: order.stateRevision.deviceId,
       );
 
   factory OrderDto.fromJson(Map<String, dynamic> json) => OrderDto(
@@ -73,18 +120,27 @@ class OrderDto {
             .whereType<Map<String, dynamic>>()
             .map(OrderLineDto.fromJson)
             .toList(),
+        state: json['state'] as String? ?? 'aperto',
+        stateRevisionCounter: json['stateRevisionCounter'] as int? ?? 0,
+        stateRevisionDevice: json['stateRevisionDevice'] as String? ?? '',
       );
 
   final String id;
   final int tableNumber;
   final String createdAtIso;
   final List<OrderLineDto> lines;
+  final String state;
+  final int stateRevisionCounter;
+  final String stateRevisionDevice;
 
   Map<String, dynamic> toJson() => <String, dynamic>{
         'id': id,
         'tableNumber': tableNumber,
         'createdAt': createdAtIso,
         'lines': lines.map((OrderLineDto l) => l.toJson()).toList(),
+        'state': state,
+        'stateRevisionCounter': stateRevisionCounter,
+        'stateRevisionDevice': stateRevisionDevice,
       };
 
   /// Traduzione verso il dominio. Restituisce `null` se il record non è
@@ -98,6 +154,22 @@ class OrderDto {
       tableNumber: tableNumber,
       lines: lines.map((OrderLineDto l) => l.toDomain()).toList(),
       createdAt: createdAt,
+      state: parseOrderState(state),
+      stateRevision: Revision(
+        counter: stateRevisionCounter,
+        deviceId: stateRevisionDevice,
+      ),
     );
   }
 }
+
+/// Uno stato sconosciuto diventa `aperto` invece di far fallire il parsing.
+///
+/// Un backend più recente potrebbe introdurre uno stato che questa versione
+/// dell'app non conosce; scartare l'intero ordine per quello sarebbe una
+/// reazione sproporzionata, e `aperto` è la scelta prudente — un tavolo che
+/// resta aperto per errore si nota, uno che risulta pagato per errore no.
+OrderState parseOrderState(String raw) => OrderState.values.firstWhere(
+      (OrderState s) => s.name == raw,
+      orElse: () => OrderState.aperto,
+    );

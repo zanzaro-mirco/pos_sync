@@ -18,6 +18,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pos_sync/features/orders/data/order_store.dart';
 import 'package:pos_sync/features/orders/domain/order.dart';
 import 'package:pos_sync/features/orders/domain/order_line.dart';
+import 'package:pos_sync/features/orders/domain/order_line_draft.dart';
 import 'package:pos_sync/features/orders/domain/orders_snapshot.dart';
 import 'package:pos_sync/features/orders/domain/outbox_entry.dart';
 import 'package:pos_sync/features/orders/domain/sync_status.dart';
@@ -47,6 +48,7 @@ typedef ApriStore = Future<StoreHarness> Function();
 
 const List<OrderLine> unaRiga = <OrderLine>[
   OrderLine(
+    id: 'r-01',
     productId: 'p-01',
     description: 'Caffè',
     quantity: 2,
@@ -56,18 +58,56 @@ const List<OrderLine> unaRiga = <OrderLine>[
 
 const List<OrderLine> treRighe = <OrderLine>[
   OrderLine(
+    id: 'r-01',
     productId: 'p-01',
     description: 'Antipasto',
     quantity: 1,
     unitPriceCents: 800,
   ),
   OrderLine(
+    id: 'r-02',
     productId: 'p-02',
     description: 'Primo',
     quantity: 2,
     unitPriceCents: 1200,
   ),
   OrderLine(
+    id: 'r-03',
+    productId: 'p-03',
+    description: 'Dolce',
+    quantity: 1,
+    unitPriceCents: 500,
+  ),
+];
+
+/// Le stesse righe, come le passa chi usa il repository.
+///
+/// Il deposito riceve `OrderLine` già timbrate; il repository riceve bozze e
+/// le timbra lui. Due costanti e non una conversione, perché sono due punti di
+/// vista diversi sullo stesso dato e mescolarli nasconde chi assegna gli id.
+const List<OrderLineDraft> unaRigaBozza = <OrderLineDraft>[
+  OrderLineDraft(
+    productId: 'p-01',
+    description: 'Caffè',
+    quantity: 2,
+    unitPriceCents: 120,
+  ),
+];
+
+const List<OrderLineDraft> treRigheBozza = <OrderLineDraft>[
+  OrderLineDraft(
+    productId: 'p-01',
+    description: 'Antipasto',
+    quantity: 1,
+    unitPriceCents: 800,
+  ),
+  OrderLineDraft(
+    productId: 'p-02',
+    description: 'Primo',
+    quantity: 2,
+    unitPriceCents: 1200,
+  ),
+  OrderLineDraft(
     productId: 'p-03',
     description: 'Dolce',
     quantity: 1,

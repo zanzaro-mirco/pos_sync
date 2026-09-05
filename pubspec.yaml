@@ -19,6 +19,10 @@ dependencies:
   workmanager: ^0.10.9
 
 dev_dependencies:
+  # Usato solo dal test di migrazione, per scrivere lo schema della versione
+  # precedente con SQL grezzo. Arriva comunque con drift come dipendenza
+  # transitiva: dichiararlo rende esplicito che questo progetto lo importa.
+  sqlite3: ^3.5.2
   flutter_test:
     sdk: flutter
   bloc_test: ^9.1.7

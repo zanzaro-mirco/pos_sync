@@ -21,7 +21,24 @@ class Orders extends Table {
   /// viene conservato: si legge sempre come ora locale.
   IntColumn get createdAt => integer().named('created_at')();
 
+  /// Stato di sincronizzazione, locale a questo dispositivo.
   TextColumn get status => text()();
+
+  /// Stato del tavolo, condiviso fra i dispositivi.
+  TextColumn get state =>
+      text().withDefault(const Constant<String>('aperto'))();
+
+  /// Revisione dell'ultimo cambio di stato, in due colonne piatte.
+  ///
+  /// Un valore composto scritto in una colonna sola — `"7@tablet-a"` — sarebbe
+  /// più compatto e impossibile da ordinare in SQL. Separate si possono
+  /// confrontare e indicizzare.
+  IntColumn get stateRevisionCounter => integer()
+      .named('state_revision_counter')
+      .withDefault(const Constant<int>(0))();
+  TextColumn get stateRevisionDevice => text()
+      .named('state_revision_device')
+      .withDefault(const Constant<String>(''))();
 
   @override
   Set<Column<Object>> get primaryKey => <Column<Object>>{id};
@@ -39,6 +56,21 @@ class OrderLines extends Table {
   /// hanno ordine. Senza questa colonna l'ordine delle righe dipenderebbe da
   /// come il motore decide di restituirle.
   IntColumn get position => integer()();
+
+  /// Identificativo della riga, stabile fra i dispositivi.
+  ///
+  /// Non è la chiave primaria e non lo diventa: la posizione dipende
+  /// dall'ordine locale e cambia a ogni fusione, l'id no. Serve all'unione
+  /// append-only, che senza di esso duplicherebbe la stessa riga a ogni
+  /// sincronizzazione.
+  TextColumn get lineId =>
+      text().named('line_id').withDefault(const Constant<String>(''))();
+
+  /// Revisione a cui la riga è stata aggiunta.
+  IntColumn get addedAtCounter =>
+      integer().named('added_at_counter').withDefault(const Constant<int>(0))();
+  TextColumn get addedAtDevice =>
+      text().named('added_at_device').withDefault(const Constant<String>(''))();
 
   TextColumn get productId => text().named('product_id')();
   TextColumn get description => text()();
@@ -64,6 +96,53 @@ class Outbox extends Table {
   IntColumn get nextAttemptAt =>
       integer().named('next_attempt_at').nullable()();
   TextColumn get lastError => text().named('last_error').nullable()();
+
+  @override
+  Set<Column<Object>> get primaryKey => <Column<Object>>{id};
+}
+
+/// Conflitti aperti, in attesa che qualcuno decida.
+///
+/// Le due versioni sono conservate come JSON, con lo stesso DTO che le manda in
+/// rete. Normalizzarle in tabelle significherebbe reggere due ordini "ombra"
+/// accanto a quello vero, con le loro righe e le loro cascate, per un dato che
+/// nessuno interroga: di un conflitto si legge tutto o niente. È anche il
+/// secondo impiego del DTO, che smette di esistere solo per il trasporto.
+///
+/// Nessuna chiave esterna verso `orders`, per la stessa ragione della coda: se
+/// l'ordine sparisce, il conflitto resta e va chiuso a mano.
+@DataClassName('ConflictRow')
+class Conflicts extends Table {
+  TextColumn get id => text()();
+  TextColumn get orderId => text().named('order_id')();
+
+  /// La versione locale, serializzata.
+  TextColumn get mine => text()();
+
+  /// La versione arrivata dall'altro dispositivo, serializzata.
+  TextColumn get theirs => text()();
+
+  TextColumn get reason => text()();
+  IntColumn get detectedAt => integer().named('detected_at')();
+
+  @override
+  Set<Column<Object>> get primaryKey => <Column<Object>>{id};
+}
+
+/// Chi è questo dispositivo e a che punto è il suo contatore logico.
+///
+/// Una riga sola, con chiave fissa: non è una tabella, è una cassetta. Ma vive
+/// qui e non fra le preferenze perché deve stare nella **stessa transazione**
+/// dei dati che numera — un contatore salvato altrove può disallinearsi da ciò
+/// che ha numerato, e un contatore che torna indietro rompe l'ordine totale su
+/// cui si regge tutta la convergenza.
+@DataClassName('DeviceRow')
+class DeviceIdentity extends Table {
+  /// Sempre 1: la riga è una sola e questo lo rende impossibile da sbagliare.
+  IntColumn get id => integer()();
+
+  TextColumn get deviceId => text().named('device_id')();
+  IntColumn get counter => integer().withDefault(const Constant<int>(0))();
 
   @override
   Set<Column<Object>> get primaryKey => <Column<Object>>{id};

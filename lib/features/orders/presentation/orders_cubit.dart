@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../domain/order_line.dart';
+import '../domain/order_conflict.dart';
+import '../domain/order_line_draft.dart';
+import '../domain/order_state.dart';
 import '../domain/orders_repository.dart';
 import '../domain/orders_snapshot.dart';
 import '../sync/sync_worker.dart';
@@ -45,6 +47,7 @@ class OrdersCubit extends Cubit<OrdersState> {
               status: OrdersStatus.ready,
               orders: snapshot.orders,
               pending: snapshot.pending,
+              conflicts: snapshot.conflicts,
             ),
           ),
           onError: (Object e) =>
@@ -56,10 +59,37 @@ class OrdersCubit extends Cubit<OrdersState> {
   /// dell'architettura.
   Future<void> addOrder({
     required int tableNumber,
-    required List<OrderLine> lines,
+    required List<OrderLineDraft> lines,
   }) async {
     try {
       await _repository.createOrder(tableNumber: tableNumber, lines: lines);
+      unawaited(sync());
+    } catch (e) {
+      emit(state.copyWith(status: OrdersStatus.error, message: '$e'));
+    }
+  }
+
+  /// Cambia lo stato del tavolo. Come tutto il resto, funziona anche offline:
+  /// la modifica è locale e porta con sé la revisione che la data.
+  Future<void> changeState({
+    required String orderId,
+    required OrderState state,
+  }) async {
+    try {
+      await _repository.changeState(orderId: orderId, state: state);
+      unawaited(sync());
+    } catch (e) {
+      emit(this.state.copyWith(status: OrdersStatus.error, message: '$e'));
+    }
+  }
+
+  /// Chiude un conflitto con la decisione dell'operatore.
+  Future<void> resolveConflict(
+    OrderConflict conflict,
+    ConflictChoice choice,
+  ) async {
+    try {
+      await _repository.resolveConflict(conflict.id, choice);
       unawaited(sync());
     } catch (e) {
       emit(state.copyWith(status: OrdersStatus.error, message: '$e'));
