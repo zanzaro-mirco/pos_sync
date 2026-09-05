@@ -7,20 +7,26 @@ core/
   clock.dart                   il tempo come dipendenza
   id_generator.dart            gli identificativi come dipendenza
   logger.dart                  la registrazione come dipendenza
+  logical_clock.dart           il tempo *logico* come dipendenza
   di.dart                      composition root
   background_sync.dart         secondo ingresso: il lavoro di WorkManager
 features/orders/
   domain/                      nessuna dipendenza esterna, nemmeno da Flutter
     order.dart  order_line.dart  outbox_entry.dart  sync_status.dart
+    order_line_draft.dart      una riga come la scrive chi prende l'ordine
+    order_state.dart           stato del tavolo, condiviso fra i dispositivi
+    revision.dart              quando, in tempo logico
+    order_conflict.dart        due versioni e la decisione da prendere
     orders_snapshot.dart       modello di lettura
     orders_repository.dart     contratto
   data/
-    order_store.dart           OrderStore · OutboxStore · OrderOutboxTransaction · OrdersWatcher
-    in_memory_order_store.dart implementa i quattro contratti
+    order_store.dart           OrderStore · OutboxStore · OrderOutboxTransaction · OrdersWatcher · ConflictStore
+    in_memory_order_store.dart implementa i cinque contratti
     local/
-      tables.dart              orders · order_lines · outbox
-      app_database.dart        schema, versione, PRAGMA
-      drift_order_store.dart   implementa gli stessi quattro contratti su SQLite
+      tables.dart              orders · order_lines · outbox · conflicts · device_identity
+      app_database.dart        schema v2, migrazione, PRAGMA
+      drift_order_store.dart   implementa gli stessi cinque contratti su SQLite
+      drift_device_store.dart  identità del dispositivo e contatore logico
     dto/order_dto.dart         rappresentazione di rete + mapper
     remote_api.dart            contratto + gerarchia sealed degli errori
     connectivity_plus_monitor.dart  adattatore sul plugin di rete
@@ -29,12 +35,15 @@ features/orders/
   sync/
     backoff.dart               esponenziale con jitter
     retry_policy.dart          strategia: se e quando riprovare
-    sync_worker.dart           orchestrazione
+    sync_worker.dart           orchestrazione: prima spinge, poi tira
+    conflict_policy.dart       strategia: come si fondono due versioni
+    inbound_merger.dart        il verso di rientro
     connectivity_monitor.dart  contratto sulla rete + monitor controllabile
     auto_sync.dart             collega il ritorno della rete al drenaggio
   presentation/
     orders_cubit.dart  orders_state.dart  orders_page.dart
     order_tile.dart            la riga della lista + l'indicatore di stato
+    conflict_card.dart         le due versioni e i due pulsanti
 ```
 
 ## MVVM, in concreto
@@ -54,7 +63,8 @@ dopo la sincronizzazione. Ora la sorgente notifica i cambiamenti.
 | **Repository** | `OrdersRepository` | Contratto nel dominio: la parola "rete" non compare mai |
 | **Outbox** | `OutboxEntry` + `SyncWorker` | Operazione e dato si salvano insieme: nessun ordine può restare invisibile al server |
 | **Unit of Work** | `OrderOutboxTransaction` | La scrittura atomica è un contratto esplicito, non un metodo nascosto fra gli altri |
-| **Strategy** | `RetryPolicy`, `Backoff` | Se e quando riprovare è una politica sostituibile |
+| **Strategy** | `RetryPolicy`, `Backoff`, `ConflictPolicy` | Se e quando riprovare, e come si fondono due versioni dello stesso dato, sono politiche sostituibili |
+| **Orologio logico** | `Revision`, `LamportClock` | L'ordine fra dispositivi non può dipendere dall'ora di sistema: sta nel dato |
 | **DTO + Mapper** | `OrderDto` | Il dominio non conosce il formato di trasporto |
 | **Sealed hierarchy** | `ApiFailure`, `RetryDecision` | Categorie di errore e decisioni chiuse ed esaustive |
 | **Observer** | `OrdersWatcher` | La UI reagisce ai cambiamenti invece di richiedere i dati |
@@ -272,6 +282,102 @@ sono diverse fra loro e ognuna porta un'etichetta per il lettore di schermo, che
 un test verifica. Chi non distingue il rosso dal verde legge lo stato
 dall'icona.
 
+## I conflitti
+
+Fino a ieri qui c'era scritto che la gestione dei conflitti non c'era, e che era
+il primo limite dichiarato quando presentavo il progetto. La ragione per cui non
+c'era è più interessante della mancanza: `RemoteApi` aveva un solo metodo,
+`submitOrder`. Era un percorso di sola andata, e **un conflitto non poteva
+proprio nascere** — niente tornava mai indietro. Aggiungere la gestione dei
+conflitti ha significato prima di tutto aggiungere il verso di rientro.
+
+### L'ordine sta nel dato, non nell'arrivo
+
+Il primo istinto è ordinare le modifiche per `createdAt`. Non funziona: l'ora di
+sistema è un dato che l'utente può cambiare dalle impostazioni, e basta un tablet
+indietro di due minuti perché le sue modifiche non vincano mai. Al suo posto c'è
+un **contatore logico di Lamport**: cresce di uno a ogni modifica locale
+(`tick`), e sale ad almeno quello visto ogni volta che arriva una revisione da
+fuori (`witness`).
+
+`Revision` è la coppia *(contatore, dispositivo)*. Il secondo campo non ha
+significato di merito: rompe la parità, e serve solo a garantire che una risposta
+ci sia e che sia **la stessa ovunque**. Senza, due modifiche allo stesso contatore
+sarebbero inordinabili e due dispositivi che le ricevono in ordine diverso
+sceglierebbero vincitori diversi — cioè esattamente la divergenza che tutto
+questo esiste per evitare.
+
+Il `witness` è il passo che non ha effetti visibili finché non è troppo tardi, ed
+è per questo che ha un test dedicato: se il tablet A ha lavorato molto e B poco,
+la decisione presa da B *dopo aver visto* quella di A deve batterla, anche se il
+contatore di B contato per conto proprio sarebbe più basso. Togliendo il
+`witness`, la convergenza continua a valere — i due dispositivi restano
+d'accordo — ma sono d'accordo sulla risposta sbagliata. È il motivo per cui la
+convergenza da sola non basta a dire che un sistema distribuito è corretto.
+
+### Una politica per tipo di dato
+
+Il criterio giusto dipende dal dato, non dal sistema. Due camerieri che aggiungono
+piatti allo stesso tavolo non sono in conflitto; due che lo chiudono sì.
+
+| Dato | Politica | Perché |
+|---|---|---|
+| Righe dell'ordine | **Append-only**: unione per id | L'unione è commutativa e idempotente, quindi il risultato non guarda l'ordine di arrivo. È da qui che discende la convergenza |
+| Stato del tavolo | **Last-write-wins** sulla revisione | Un tavolo non può essere insieme aperto e pagato: uno dei due deve perdere, e a decidere è il contatore logico |
+
+Le righe portano un `id` proprio perché l'unione sia idempotente: senza,
+sincronizzare due volte le duplicherebbe. E portano una `addedAt` perché serve
+sapere *quando* sono entrate.
+
+### Dove il codice si ferma e chiede
+
+C'è un caso in cui le due politiche prese alla lettera danno un risultato
+plausibile e sbagliato: **il tavolo risulta pagato, e l'altra versione porta
+righe che chi ha incassato non aveva davanti**. Unione più last-write-wins
+produrrebbe un tavolo pagato con dentro roba non pagata — un esito che non fa
+rumore da nessuna parte, tranne che in cassa a fine serata. Non è il codice a
+poter decidere se quelle righe vanno incassate a parte o se il pagamento va
+rifatto: lo decide chi è lì.
+
+Il riconoscimento **non passa dai contatori**, e questa è la parte non ovvia. Con
+un orologio di Lamport una riga aggiunta da un dispositivo che non aveva ancora
+visto il pagamento porta un contatore *più basso*, e un controllo del tipo "la
+riga è successiva al pagamento?" la lascerebbe passare in silenzio. La domanda
+giusta è un'altra e non dipende dai numeri: *chi ha incassato aveva questa riga
+davanti?* Si risponde con una differenza fra insiemi.
+
+Vale la pena dire anche cosa **non** è un conflitto: due dispositivi che
+aggiungono piatti, due che portano il tavolo a servito, uno che serve mentre
+l'altro aggiunge. Tutto questo converge da solo e non interrompe nessuno. Un
+sistema che chiede conferma troppo spesso viene ignorato, ed è un modo più lento
+di non avere gestione dei conflitti.
+
+### Chiedere è sicuro perché non si perde niente
+
+La decisione dell'operatore riguarda **solo lo stato del tavolo**: le righe
+restano unite in ogni caso. Non esiste una risposta che faccia sparire una
+comanda, ed è la ragione per cui i due pulsanti si possono mettere davanti a
+qualcuno di fretta. Sui pulsanti è scritta la conseguenza — «tieni il pagamento»,
+«tieni il tavolo aperto» — e non la provenienza: «tieni la mia» costringerebbe
+chi decide a ricostruire quale sia la propria e cosa comporti.
+
+La versione risolta nasce con una revisione **nuova**, non con quella della
+versione scelta: la decisione è essa stessa una modifica e deve battere entrambe
+le versioni che l'hanno provocata, anche sull'altro dispositivo. Senza, l'altro
+rifonderebbe le stesse due e ricadrebbe nello stesso conflitto. E quando una
+fusione torna a riuscire, l'eventuale conflitto ancora aperto su quell'ordine
+viene chiuso: nessuno deve decidere due volte la stessa cosa.
+
+### Il server non fonde
+
+`fetchOrders` restituisce **una versione per dispositivo**, non una sola versione
+fusa. Fondere sul server sembrerebbe più efficiente e distruggerebbe la
+provenienza: la versione di un dispositivo è ciò che *quel* dispositivo credeva, e
+senza non si può più rispondere alla domanda da cui dipende il riconoscimento del
+conflitto — la versione fusa contiene tutte le righe per costruzione. È anche la
+scelta che tiene la porta aperta al passo successivo della roadmap: fra due tablet
+in rete locale, un server che fonde non c'è.
+
 ## SOLID, punto per punto
 
 **Single Responsibility.** Il `SyncWorker` faceva cinque cose: orchestrare la coda,
@@ -313,6 +419,8 @@ punto solo.
 | La connettività sarebbe stata verificabile solo mettendo il telefono in modalità aereo | `FakeConnectivityMonitor` e `Sleeper` iniettato: transizioni e jitter verificati in millisecondi |
 | La schermata non era coperta da nessun test | `orders_page_test.dart`: i tre stati, i comandi che arrivano al cubit, le etichette per il lettore di schermo |
 | L'aspetto era verificabile solo guardando l'app | Quattro golden sulla riga dell'ordine: cambiare di uno il valore di un colore fa fallire il test |
+| Un secondo dispositivo esisteva solo come ipotesi | `FakeServer` condiviso fra due `TestEnv`: due tablet veri, con la propria rete e il proprio contatore |
+| La migrazione dello schema era un ramo di codice mai eseguito | `migration_test.dart` apre una base dati in formato versione 1, con dentro degli ordini |
 
 ### La suite di contratto
 
@@ -331,8 +439,11 @@ e riaperto il file.
 
 - **Nessuno use case fra cubit e repository.** Le operazioni sono due e dirette.
   Diventerebbero utili con logica composta fra più feature.
-- **Una sola versione dello schema.** C'è `schemaVersion` e c'è il punto in cui scrivere
-  le migrazioni, ma non essendoci ancora una versione 2 non c'è niente da migrare.
+- **Una sola migrazione, ma vera.** La versione 2 aggiunge colonne con `ALTER TABLE`
+  invece di ricreare le tabelle, ed è verificata da `migration_test.dart` su una base
+  dati scritta a mano nella forma della versione 1, con dentro degli ordini. Non è
+  pignoleria: su un tablet di sala quella base dati contiene ordini che il server non
+  ha ancora visto.
 - **Il fuso orario non sopravvive al deposito.** Gli istanti sono salvati come punto
   assoluto nel tempo e riletti come ora locale: il flag `isUtc` si perde. Per un
   applicativo che gira su un dispositivo solo non cambia niente; in un sistema con
@@ -362,5 +473,24 @@ e riaperto il file.
   regressione grafica introdotta qui si scopre solo dopo il push. L'alternativa — un
   riferimento per piattaforma — raddoppia le immagini da tenere allineate, e quella che non
   gira in CI resterebbe vecchia senza che nessuno se ne accorga.
-- **La gestione dei conflitti non c'è.** Funziona finché i dispositivi lavorano su
-  dati disgiunti — ed è il primo limite che dichiaro quando presento il progetto.
+- **Lamport, non vector clock.** Un vector clock distingue *concorrente* da
+  *causalmente ordinato*; Lamport no, e con Lamport due modifiche davvero simultanee
+  vengono ordinate arbitrariamente. Qui non serve: l'unica ambiguità che il sistema
+  espone si riconosce da un confronto fra insiemi di righe, non dai contatori. In
+  cambio, la revisione resta due campi e non cresce con il numero di dispositivi.
+- **`fetchOrders` porta tutto, senza delta né paginazione.** Va bene per il servizio
+  di una sera; con lo storico di un anno servirebbe un `since` e delle pagine. La
+  forma del contratto è già quella giusta per aggiungerli.
+- **Nessuna cancellazione distribuita.** Un ordine eliminato in locale ricompare alla
+  prima sincronizzazione, perché per il server esiste ancora. Servirebbero le
+  *tombstone*, cioè una cancellazione che è essa stessa un dato che si propaga. Le
+  righe non hanno il problema, perché non si cancellano per costruzione.
+- **Il conflitto resta sul dispositivo che lo ha visto.** Se A e B se lo trovano
+  entrambi, entrambi devono aprirlo — poi la prima decisione chiude anche l'altro,
+  ma nell'intervallo in due potrebbero decidere in modo opposto. Vincerebbe la
+  revisione più alta, quindi il sistema resta coerente: è l'operatore che ha lavorato
+  per niente.
+- **Lo stato del tavolo non ha transizioni vincolate.** Da `pagato` si può tornare ad
+  `aperto`, ed è voluto: è esattamente la scelta che la scheda di risoluzione offre
+  all'operatore. Una macchina a stati che lo vietasse renderebbe irrisolvibile
+  proprio il caso per cui la scheda esiste.

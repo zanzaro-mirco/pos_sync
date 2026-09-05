@@ -19,23 +19,26 @@ la rete è un dettaglio di sincronizzazione**.
 ## Come funziona
 
 ```
-   UI (Cubit)  ◄── osserva OrdersSnapshot (ordini + pendenze, coerenti)
+   UI (Cubit)  ◄── osserva OrdersSnapshot (ordini + pendenze + conflitti, coerenti)
        │  scrive solo in locale, non sa se c'è rete
        ▼
   OrdersRepository ──► OrderOutboxTransaction ──► SQLite (Drift)
-       │                  (ordine + outbox, atomico)      ▲
-       ▼                                                  │
-   OutboxStore ──► SyncWorker ──► RetryPolicy ──► Backoff │
-                       ▲  drain(): invia le voci scadute  │
-                       │                                  │
+       │   timbra le modifiche  (ordine + outbox, atomico)   ▲
+       │   con LogicalClock                                  │
+       ▼                                                     │
+   OutboxStore ──► SyncWorker ──► RetryPolicy ──► Backoff    │
+                       ▲  drain(): 1. spinge  2. tira        │
+                       │                                     │
                        ├── AutoSync   ◄── ConnectivityMonitor (offline ➜ online)
                        └── WorkManager (Android, ad app chiusa)
                        │
-                       ▼
-                   RemoteApi (DTO) ──► backend idempotente su order.id
+                       ├──► RemoteApi (DTO) ──► backend idempotente su order.id
+                       │
+                       └──► InboundMerger ──► ConflictPolicy ──┬─► fonde
+                              tira le versioni degli altri     └─► o chiede
 ```
 
-### Le quattro decisioni che contano
+### Le decisioni che contano
 
 **1. L'id dell'ordine è generato dal client.**
 Non dal server. È la chiave che rende l'invio idempotente: se il server registra l'ordine
@@ -61,6 +64,25 @@ Passare da Wi-Fi a dati mobili è un cambiamento di rete, non di stato: agire su
 farebbe ripartire la coda a ogni sobbalzo del segnale. E lo stato all'avvio conta come una
 transizione, altrimenti un'app riaperta sotto rete non riceverebbe mai un cambiamento e la
 coda del giorno prima resterebbe ferma per sempre.
+
+**6. Chi ha modificato per ultimo lo decide un contatore logico, non l'orologio.**
+L'ora di sistema è un dato che l'utente può cambiare dalle impostazioni: basta un tablet
+indietro di due minuti perché le sue modifiche non vincano mai. Ogni modifica porta una
+`Revision` — un contatore di Lamport più l'identificativo del dispositivo a rompere la
+parità — e il risultato è un ordine **totale**, uguale su tutti i dispositivi.
+
+**7. Ogni tipo di dato ha la sua politica di fusione.**
+Le righe dell'ordine sono append-only e si uniscono: due camerieri che aggiungono piatti
+non sono in conflitto, e l'unione è commutativa, quindi il risultato non guarda l'ordine di
+arrivo. Lo stato del tavolo invece è last-write-wins, perché un tavolo non può essere
+insieme aperto e pagato.
+
+**8. Dove fondere sarebbe sbagliato, il codice si ferma e chiede.**
+Se il tavolo risulta pagato e l'altra versione porta righe che chi ha incassato non aveva
+davanti, unione e last-write-wins darebbero un tavolo pagato con dentro roba non pagata:
+plausibile, sbagliato, e silenzioso fino alla chiusura di cassa. Quel caso finisce in una
+scheda con due pulsanti. Tutto il resto converge da solo — un sistema che chiede troppo
+spesso viene ignorato.
 
 ## Architettura
 
@@ -135,10 +157,25 @@ I test coprono i casi che contano, non le righe facili:
 | Comandi dell'interfaccia | Premere sincronizza *sincronizza*: il test conta le chiamate arrivate al cubit |
 | Etichette per il lettore di schermo | Ogni stato si annuncia, il colore non è l'unico portatore dell'informazione |
 | **Aspetto della riga** | Quattro golden: cambiare di **uno** il valore di un colore fa fallire il test (0,98%, 253 pixel) |
+| **Due dispositivi, ordine invertito** | Le stesse modifiche applicate in sequenza opposta portano allo **stesso stato finale** |
+| Tutte e sei le sequenze di tre modifiche | La convergenza è una proprietà, non un caso fortunato |
+| Modifica fatta dopo aver visto quella altrui | Vince, anche se il contatore di chi la fa sarebbe più basso |
+| **Pagato contro righe mai viste** | Non si fonde in silenzio: si apre un conflitto su entrambi i dispositivi |
+| Decisione presa su un dispositivo | Chiude il conflitto anche sull'altro: nessuno decide due volte |
+| Qualunque delle due scelte | Nessuna riga sparisce — è la ragione per cui è sicuro chiedere |
+| Un dispositivo offline | Non blocca l'altro, e al rientro converge |
+| **Migrazione dello schema v1 → v2** | Una base dati scritta dalla versione precedente, con dentro ordini non ancora inviati, arriva intatta |
 
-Tempo, identificativi, log e politica di ritentativo sono tutti iniettati: i test sul
-backoff girano in millisecondi invece di attendere minuti reali, gli id sono
-deterministici (`id-1`, `id-2`) e si può asserire su cosa è stato registrato nel log.
+Tempo, identificativi, log, politica di ritentativo, **contatore logico e politica di
+fusione** sono tutti iniettati: i test sul backoff girano in millisecondi invece di
+attendere minuti reali, gli id sono deterministici (`id-1`, `id-2`), si può asserire su
+cosa è stato registrato nel log, e due `TestEnv` che condividono un `FakeServer` sono due
+tablet nello stesso locale.
+
+Due invarianti sono state verificate **al contrario**, rompendole apposta: sostituendo il
+confronto delle revisioni con «vince chi arriva per ultimo», i due dispositivi divergono e
+lo stesso tavolo risulta servito su uno e aperto sull'altro; togliendo il `witness`
+dell'orologio logico, i due restano d'accordo ma scartano l'ultima decisione presa.
 
 ## I quattro stati di un ordine
 
@@ -192,7 +229,9 @@ dell'app e la coda riparte da sola quando la rete torna. Cosa manca per un uso r
 - [x] Widget test sulla `OrdersPage` e golden test sulla riga dell'ordine, in CI con la
       versione di Flutter fissata
 - [ ] Client HTTP reale al posto di `FakeRemoteApi`
-- [ ] Gestione dei conflitti fra dispositivi
+- [x] Gestione dei conflitti fra dispositivi — contatore logico di Lamport, righe
+      append-only e stato del tavolo last-write-wins, con il caso ambiguo esposto
+      all'operatore invece che risolto in silenzio
 - [ ] Test end-to-end su emulatore con `integration_test`
 
 ## Licenza
