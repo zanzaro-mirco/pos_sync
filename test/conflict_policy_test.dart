@@ -103,10 +103,10 @@ void main() {
       final StampedState mine = StampedState(OrderState.served, rev(2, 'a'));
       final StampedState theirs = StampedState(OrderState.paid, rev(5, 'b'));
 
-      expect(
-          (statePolicy.merge(mine, theirs) as Resolved<StampedState>).value, theirs);
-      expect(
-          (statePolicy.merge(theirs, mine) as Resolved<StampedState>).value, theirs,
+      expect((statePolicy.merge(mine, theirs) as Resolved<StampedState>).value,
+          theirs);
+      expect((statePolicy.merge(theirs, mine) as Resolved<StampedState>).value,
+          theirs,
           reason: 'invertendo gli argomenti deve vincere lo stesso');
     });
 
