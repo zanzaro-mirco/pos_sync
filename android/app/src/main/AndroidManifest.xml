@@ -6,6 +6,13 @@
          computer di chi sviluppa e non su quella del cliente. -->
     <uses-permission android:name="android.permission.INTERNET"/>
 
+    <!-- La scoperta della cassa passa da mDNS, che e' multicast: senza questo
+         permesso NsdManager non riceve le risposte e ogni ricerca scade a
+         vuoto. Non e' un permesso che l'utente deve concedere - si dichiara e
+         basta - ma senza dichiararlo il guasto si presenta come "non trovo
+         nessuna cassa", che non suggerisce di andare a guardare il manifest. -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE"/>
+
     <!-- `usesCleartextTraffic`: da Android 9 il traffico in chiaro è vietato
          per impostazione predefinita, e la sincronizzazione fra tablet è HTTP
          semplice su una rete locale. Non usare TLS è una scelta dichiarata fra

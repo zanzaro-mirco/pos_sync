@@ -30,16 +30,23 @@ void main() {
       const PeerSettings fresh = PeerSettings();
 
       expect(fresh.role, PeerRole.standalone);
-      expect(fresh.isUsable, isTrue);
+      expect(fresh.primaryHost, isEmpty);
     });
 
-    test('un follower senza indirizzo è a metà, non rotto', () {
-      // Distinzione che conta: una configurazione incompleta fa continuare il
-      // dispositivo come prima, non lo fa fallire.
-      const PeerSettings half = PeerSettings(role: PeerRole.follower);
+    test('un follower senza indirizzo è configurato, non a metà', () {
+      // Da quando la cassa si annuncia, l'indirizzo vuoto ha un significato
+      // suo: «cercala». Prima era una configurazione incompleta e il
+      // dispositivo ripiegava sul backend simulato — cioè accettava ordini che
+      // nessun altro avrebbe mai letto.
+      const PeerSettings looking = PeerSettings(role: PeerRole.follower);
 
-      expect(half.isUsable, isFalse);
-      expect(half.copyWith(primaryHost: '192.168.1.7').isUsable, isTrue);
+      expect(looking.role, PeerRole.follower);
+      expect(looking.toString(), contains('da cercare'));
+      expect(
+        looking.copyWith(primaryHost: '192.168.1.7').toString(),
+        contains('192.168.1.7'),
+        reason: 'un indirizzo digitato deve restare leggibile nei log',
+      );
     });
 
     test('il nome del ruolo sopravvive al viaggio su disco', () {
@@ -154,12 +161,17 @@ void main() {
       expect(coordinator.role, PeerRole.primary);
     });
 
-    test('un follower senza indirizzo continua come prima', () async {
+    test('un follower che non trova la cassa non ripiega sul finto backend',
+        () async {
+      // Senza scoperta configurata non c'è nessuna cassa da trovare. Il
+      // dispositivo fallisce in modo recuperabile invece di depositare gli
+      // ordini nel registro in processo, che nessun altro leggerebbe mai.
       await settings.save(const PeerSettings(role: PeerRole.follower));
-      await coordinator.fetchOrders();
 
-      // Il ruolo è quello scelto, ma il backend resta quello di prima: una
-      // configurazione a metà non deve rompere il dispositivo.
+      await expectLater(
+        coordinator.fetchOrders(),
+        throwsA(isA<TransientApiFailure>()),
+      );
       expect(coordinator.role, PeerRole.follower);
       expect(coordinator.localRegistry, isNull);
     });

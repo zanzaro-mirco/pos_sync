@@ -9,8 +9,9 @@ import '../lan/peer_settings.dart';
 /// stare il tablet, mentre «primario» richiede di sapere già come funziona il
 /// sistema. È la stessa regola dei pulsanti della scheda di conflitto.
 ///
-/// L'indirizzo della cassa compare solo quando serve. Un campo sempre presente
-/// e quasi sempre da ignorare è un invito a compilarlo per sbaglio.
+/// L'indirizzo della cassa compare solo quando serve, ed è **facoltativo**:
+/// lasciarlo vuoto significa cercarla sulla rete. Un campo sempre presente e
+/// quasi sempre da ignorare è un invito a compilarlo per sbaglio.
 ///
 /// La porta non si chiede affatto: vale `lanPort` su entrambi i lati e nessuno
 /// deve impararla dall'altro. Chiederla darebbe a chi installa l'app un modo
@@ -123,8 +124,10 @@ class _PeerSettingsSheetState extends State<PeerSettingsSheet> {
                   controller: _host,
                   keyboardType: TextInputType.url,
                   decoration: const InputDecoration(
-                    labelText: 'Indirizzo della cassa',
+                    labelText: 'Indirizzo della cassa (facoltativo)',
                     hintText: '192.168.1.7',
+                    helperText: 'Vuoto: la cerca da sola sulla rete',
+                    helperMaxLines: 2,
                   ),
                 ),
               ),
@@ -165,6 +168,6 @@ class _PeerSettingsSheetState extends State<PeerSettingsSheet> {
   static String _subtitle(PeerRole role) => switch (role) {
         PeerRole.standalone => 'Si parla solo con il backend, come prima',
         PeerRole.primary => 'Tiene il registro e risponde agli altri tablet',
-        PeerRole.follower => 'Si sincronizza con la cassa',
+        PeerRole.follower => 'Cerca la cassa in rete e si sincronizza',
       };
 }

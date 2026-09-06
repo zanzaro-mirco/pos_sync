@@ -17,6 +17,8 @@ import '../features/orders/domain/orders_repository.dart';
 import '../features/orders/sync/auto_sync.dart';
 import '../features/orders/sync/conflict_policy.dart';
 import '../features/orders/lan/lan_coordinator.dart';
+import '../features/orders/lan/nsd_discovery.dart';
+import '../features/orders/lan/peer_discovery.dart';
 import '../features/orders/lan/peer_retry_policy.dart';
 import '../features/orders/lan/peer_settings.dart';
 import '../features/orders/sync/connectivity_monitor.dart';
@@ -81,6 +83,13 @@ void setUpDependencies({bool demoMode = true}) {
   sl.registerLazySingleton<PeerSettingsStore>(() =>
       DriftPeerSettings(sl<AppDatabase>(), idGenerator: sl<IdGenerator>()));
 
+  // La scoperta vera passa dai canali di piattaforma. Registrata qui e non
+  // costruita dentro il coordinatore per la ragione di sempre: è l'unica
+  // dipendenza di quel file che un test non può montare, e tenerla fuori è ciò
+  // che rende verificabile tutto il resto.
+  sl.registerLazySingleton<PeerDiscovery>(
+      () => NsdDiscovery(logger: sl<Logger>()));
+
   // Il backend che il resto del sistema vede è il coordinatore, non il finto:
   // sceglie da sé se parlare in processo, tenere il registro o chiederlo a un
   // altro tablet, e chi lo usa non deve sapere quale delle tre.
@@ -90,6 +99,7 @@ void setUpDependencies({bool demoMode = true}) {
       registry: sl<OrderRegistry>(),
       deviceId: sl<LogicalClockStore>().loadDeviceId,
       standalone: sl<FakeRemoteApi>(),
+      discovery: sl<PeerDiscovery>(),
       logger: sl<Logger>(),
     ),
   );

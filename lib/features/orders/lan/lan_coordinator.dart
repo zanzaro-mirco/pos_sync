@@ -5,6 +5,7 @@ import '../domain/order.dart';
 import 'http_remote_api.dart';
 import 'local_registry_api.dart';
 import 'order_server.dart';
+import 'peer_discovery.dart';
 import 'peer_settings.dart';
 
 /// Tiene insieme il ruolo, il server e il backend, e li fa cambiare insieme.
@@ -27,23 +28,30 @@ class LanCoordinator implements RemoteApi {
     required OrderRegistry registry,
     required Future<String> Function() deviceId,
     required RemoteApi standalone,
+    PeerDiscovery discovery = const NoDiscovery(),
     Logger logger = const SilentLogger(),
   })  : _settings = settings,
         _registry = registry,
         _deviceId = deviceId,
         _standalone = standalone,
+        _discovery = discovery,
         _logger = logger;
 
   final PeerSettingsStore _settings;
   final OrderRegistry _registry;
   final Future<String> Function() _deviceId;
   final RemoteApi _standalone;
+  final PeerDiscovery _discovery;
   final Logger _logger;
 
   OrderServer? _server;
   HttpRemoteApi? _client;
   RemoteApi? _delegate;
   PeerSettings _current = const PeerSettings();
+
+  /// Se l'indirizzo in uso l'abbiamo trovato noi invece di leggerlo dalle
+  /// impostazioni. Decide se ha senso ricercarlo quando smette di rispondere.
+  bool _addressDiscovered = false;
 
   /// L'ultimo ruolo osservato, senza attese.
   ///
@@ -66,19 +74,11 @@ class LanCoordinator implements RemoteApi {
 
     await _teardown();
     _current = wanted;
-
-    if (!wanted.isUsable) {
-      // Un follower senza indirizzo: configurazione a metà, non un errore.
-      // Si continua a fare ciò che si faceva prima invece di rompersi.
-      _logger.info('Configurazione di rete incompleta: $wanted');
-      return _delegate = _standalone;
-    }
-
     final String me = await _deviceId();
 
     switch (wanted.role) {
       case PeerRole.standalone:
-        _delegate = _standalone;
+        return _delegate = _standalone;
 
       case PeerRole.primary:
         final OrderServer server = OrderServer(
@@ -88,22 +88,59 @@ class LanCoordinator implements RemoteApi {
         );
         await server.start(port: wanted.primaryPort);
         _server = server;
+        await _announce(me, server.port ?? wanted.primaryPort);
+        _logger.info('Rete locale: $wanted');
         // Il primario deposita la propria versione come chiunque altro: il
         // registro deve poterla tenere distinta da quelle dei follower.
-        _delegate = LocalRegistryApi(registry: _registry, deviceId: me);
+        return _delegate = LocalRegistryApi(registry: _registry, deviceId: me);
 
       case PeerRole.follower:
+        final PeerAddress? where = await _primaryAddress(wanted);
+        if (where == null) {
+          // Nessun delegato memorizzato di proposito: al prossimo giro si
+          // torna a cercare, invece di restare fermi su un fallimento.
+          _logger.info('Nessuna cassa raggiungibile');
+          return const _UnreachablePrimary();
+        }
         final HttpRemoteApi client = HttpRemoteApi(
-          host: wanted.primaryHost,
-          port: wanted.primaryPort,
+          host: where.host,
+          port: where.port,
           deviceId: me,
         );
         _client = client;
-        _delegate = client;
+        _logger.info('Rete locale: cassa a $where');
+        return _delegate = client;
     }
+  }
 
-    _logger.info('Rete locale: $wanted');
-    return _delegate!;
+  /// Dove bussare, se si riesce a saperlo.
+  ///
+  /// **L'indirizzo digitato ha la precedenza.** Nei locali il Wi-Fi ospiti
+  /// blocca spesso il multicast, e chi ha scritto un indirizzo a mano lo ha
+  /// fatto per una ragione: scavalcarlo con ciò che si trova in rete
+  /// significherebbe ignorare l'unica configurazione che si può sempre far
+  /// funzionare.
+  Future<PeerAddress?> _primaryAddress(PeerSettings wanted) async {
+    if (wanted.primaryHost.isNotEmpty) {
+      _addressDiscovered = false;
+      return PeerAddress(host: wanted.primaryHost, port: wanted.primaryPort);
+    }
+    final PeerAddress? found = await _discovery.findPrimary();
+    _addressDiscovered = found != null;
+    return found;
+  }
+
+  /// Si annuncia, e non si ferma se non ci riesce.
+  ///
+  /// Una rete che filtra il multicast non deve impedire alla cassa di *essere*
+  /// la cassa: chi conosce l'indirizzo la raggiunge lo stesso, ed è esattamente
+  /// il caso per cui l'indirizzo manuale è rimasto.
+  Future<void> _announce(String deviceId, int port) async {
+    try {
+      await _discovery.advertise(deviceId: deviceId, port: port);
+    } catch (e) {
+      _logger.warning('Annuncio in rete non riuscito: $e');
+    }
   }
 
   Future<void> _teardown() async {
@@ -112,15 +149,62 @@ class LanCoordinator implements RemoteApi {
     await _server?.stop();
     _server = null;
     _delegate = null;
+    _addressDiscovered = false;
+    try {
+      await _discovery.stopAdvertising();
+    } catch (e) {
+      _logger.warning('Annuncio non ritirato: $e');
+    }
   }
 
   /// Chiude tutto. Da chiamare quando l'applicazione termina.
   Future<void> dispose() => _teardown();
 
-  @override
-  Future<void> submitOrder(Order order) async =>
-      (await _resolve()).submitOrder(order);
+  /// Esegue la chiamata e, se fallisce per ragioni di rete, dimentica un
+  /// indirizzo che avevamo scoperto noi.
+  ///
+  /// Serve a un caso concreto: la cassa riceve un indirizzo diverso dal router
+  /// dopo un riavvio. Senza questo, i tablet continuerebbero a bussare al
+  /// vecchio indirizzo per sempre, e l'unico rimedio sarebbe riavviare l'app —
+  /// cioè la scoperta automatica funzionerebbe una volta sola.
+  ///
+  /// Un indirizzo **digitato** non si dimentica: è una decisione di chi l'ha
+  /// scritto, e sostituirla con ciò che passa per la rete sarebbe scavalcarlo.
+  Future<T> _guard<T>(Future<T> Function(RemoteApi api) call) async {
+    final RemoteApi api = await _resolve();
+    try {
+      return await call(api);
+    } on TransientApiFailure {
+      if (_addressDiscovered) await _teardown();
+      rethrow;
+    }
+  }
 
   @override
-  Future<List<Order>> fetchOrders() async => (await _resolve()).fetchOrders();
+  Future<void> submitOrder(Order order) =>
+      _guard((RemoteApi api) => api.submitOrder(order));
+
+  @override
+  Future<List<Order>> fetchOrders() =>
+      _guard((RemoteApi api) => api.fetchOrders());
+}
+
+/// Il backend di chi è in sala e non sa dove sia la cassa.
+///
+/// Fallisce in modo **recuperabile**, e la differenza conta: la coda tiene gli
+/// ordini e riprova. Ripiegare sul backend simulato — che era il comportamento
+/// prima della scoperta automatica — li avrebbe accettati tutti, marcandoli
+/// come inviati verso un registro che vive nel processo di questo tablet e che
+/// nessun altro leggerà mai.
+class _UnreachablePrimary implements RemoteApi {
+  const _UnreachablePrimary();
+
+  static const ApiFailure _failure =
+      TransientApiFailure('Nessuna cassa raggiungibile in rete locale');
+
+  @override
+  Future<void> submitOrder(Order order) async => throw _failure;
+
+  @override
+  Future<List<Order>> fetchOrders() async => throw _failure;
 }

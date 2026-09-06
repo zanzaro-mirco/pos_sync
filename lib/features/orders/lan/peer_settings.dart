@@ -19,7 +19,8 @@ enum PeerRole {
   /// Questo dispositivo tiene il registro e lo espone agli altri.
   primary,
 
-  /// Questo dispositivo parla con il primario all'indirizzo configurato.
+  /// Questo dispositivo parla con il primario: all'indirizzo configurato, o
+  /// a quello trovato in rete se non se ne è digitato uno.
   follower,
 }
 
@@ -38,20 +39,14 @@ class PeerSettings extends Equatable {
   final PeerRole role;
 
   /// Indirizzo IPv4 del primario. Significativo solo per [PeerRole.follower].
+  ///
+  /// **Vuoto non vuol dire «non configurato»**: vuol dire «cercala sulla
+  /// rete». Da quando esiste la scoperta automatica è anzi il valore da
+  /// preferire, perché sopravvive a un cambio di indirizzo della cassa; si
+  /// digita quando il multicast non passa, cosa che nei locali capita.
   final String primaryHost;
 
   final int primaryPort;
-
-  /// Se questa configurazione è utilizzabile così com'è.
-  ///
-  /// Un follower senza indirizzo non è un errore da segnalare con un'eccezione:
-  /// è semplicemente una configurazione a metà, e il dispositivo continua a
-  /// comportarsi come se non fosse in rete locale finché non la si completa.
-  bool get isUsable => switch (role) {
-        PeerRole.standalone => true,
-        PeerRole.primary => true,
-        PeerRole.follower => primaryHost.isNotEmpty,
-      };
 
   PeerSettings copyWith({
     PeerRole? role,
@@ -71,6 +66,8 @@ class PeerSettings extends Equatable {
   String toString() => switch (role) {
         PeerRole.standalone => 'PeerSettings(standalone)',
         PeerRole.primary => 'PeerSettings(primary)',
+        PeerRole.follower when primaryHost.isEmpty =>
+          'PeerSettings(follower -> cassa da cercare)',
         PeerRole.follower =>
           'PeerSettings(follower -> $primaryHost:$primaryPort)',
       };

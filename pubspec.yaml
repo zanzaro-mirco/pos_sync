@@ -17,6 +17,7 @@ dependencies:
   drift_flutter: ^0.3.1
   connectivity_plus: ^7.3.1
   workmanager: ^0.10.9
+  nsd: ^5.0.1
 
 dev_dependencies:
   # Usato solo dal test di migrazione, per scrivere lo schema della versione
