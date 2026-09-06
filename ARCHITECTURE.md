@@ -24,15 +24,29 @@ features/orders/
     in_memory_order_store.dart implementa i cinque contratti
     local/
       tables.dart              orders · order_lines · outbox · conflicts · device_identity
-      app_database.dart        schema v2, migrazione, PRAGMA
+      app_database.dart        schema v3, migrazioni, PRAGMA
       drift_order_store.dart   implementa gli stessi cinque contratti su SQLite
       drift_device_store.dart  identità del dispositivo e contatore logico
+      drift_peer_settings.dart ruolo e indirizzo, sulla stessa riga dell'identità
     dto/order_dto.dart         rappresentazione di rete + mapper
     remote_api.dart            contratto + gerarchia sealed degli errori
+    order_registry.dart        cosa il punto di raccolta sa, e di chi
     second_device.dart         un altro tablet, simulato, per poterlo mostrare
     connectivity_plus_monitor.dart  adattatore sul plugin di rete
     outbox_scheduler.dart      creazione della voce di coda
     orders_repository_impl.dart
+  lan/
+    lan_protocol.dart          porta, percorsi, servizio mDNS: il poco condiviso
+    order_server.dart          la cassa vista dagli altri tablet
+    http_remote_api.dart       il tablet in sala che le parla
+    local_registry_api.dart    la cassa che parla con sé stessa
+    lan_coordinator.dart       sceglie il backend in base al ruolo, a caldo
+    peer_settings.dart         ruolo e indirizzo + contratto del deposito
+    peer_discovery.dart        contratto della scoperta + doppio inerte
+    nsd_discovery.dart         la scoperta vera, su mDNS — senza decisioni
+    primary_election.dart      chi prende il registro se la cassa sparisce
+    peer_retry_policy.dart     budget di ritentativi diverso in sala
+    local_address.dart         il proprio indirizzo, da mostrare a chi configura
   sync/
     backoff.dart               esponenziale con jitter
     retry_policy.dart          strategia: se e quando riprovare
@@ -41,12 +55,14 @@ features/orders/
     inbound_merger.dart        il verso di rientro
     connectivity_monitor.dart  contratto sulla rete + monitor controllabile
     auto_sync.dart             collega il ritorno della rete al drenaggio
+    order_republisher.dart     riaccoda tutto quando la cassa cambia identità
   presentation/
     orders_cubit.dart  orders_state.dart  orders_page.dart
     order_tile.dart            la riga della lista + l'indicatore di stato
     conflict_card.dart         le due versioni e i due pulsanti
     table_number_dialog.dart   il numero del tavolo, ripetibile
     order_state_label.dart     come si scrive uno stato in sala
+    peer_settings_sheet.dart   dove si sceglie che parte fa questo dispositivo
 ```
 
 ## Due lingue, e non è un caso
@@ -432,6 +448,188 @@ identiche — e una richiesta di decisione ripetuta all'infinito si smette di
 leggere, che è il modo più rapido per rendere inutile l'unica cosa che il sistema
 chiede.
 
+## La rete locale
+
+*«In un ristorante il server cloud è irraggiungibile ma i tablet si vedono fra loro.»*
+È l'ultima voce della roadmap, ed è quella che mette alla prova tutte le scelte
+prese prima: se il livello di sincronizzazione è davvero disaccoppiato dal
+trasporto, sostituire il trasporto non deve toccare nient'altro.
+
+### Tre backend, un contratto
+
+`RemoteApi` ha due metodi e tre implementazioni, una per situazione:
+
+| Situazione | Implementazione | Dove sta il registro |
+|---|---|---|
+| Demo in processo | `FakeRemoteApi` | in memoria, stesso processo |
+| Dispositivo in cassa | `LocalRegistryApi` | qui, senza rete |
+| Dispositivo in sala | `HttpRemoteApi` | sulla cassa, via HTTP |
+
+`LanCoordinator` è a sua volta un `RemoteApi` che sceglie fra le tre in base al
+ruolo configurato, e rilegge il ruolo a ogni chiamata invece di osservarlo: le
+chiamate sono due e arrivano quando la coda gira, mentre il ruolo cambia una
+volta all'anno. Senza questo indirizzamento dinamico, cambiare ruolo
+richiederebbe di riavviare l'app — accettabile in un test, imbarazzante davanti
+a qualcuno che guarda.
+
+**Il worker non è stato toccato**, ed era il criterio vero di questa voce. Due
+decisioni prese per i conflitti lo hanno reso possibile: `fetchOrders`
+restituisce una versione per dispositivo e non una fusa, e gli errori sono una
+gerarchia sealed. `HttpRemoteApi` deve solo tradurre — timeout e socket in
+`TransientApiFailure`, `4xx` in `PermanentApiFailure`, `5xx` in transitorio — e
+coda, backoff e ritentativi funzionano da soli senza sapere che dall'altra parte
+c'è un tablet.
+
+### Il protocollo è asimmetrico, e questo semplifica tutto
+
+**Solo chi è in sala apre connessioni. La cassa risponde e basta.** Non c'è uno
+scambio fra pari, non c'è un canale aperto, nessuno "trasmette" agli altri: c'è
+un tablet che fa da lavagna e altri che ci vanno a scrivere e a leggere.
+
+Tre percorsi su `dart:io`, nessun framework aggiunto per tre rotte:
+
+| Verbo | Significato | Risposta |
+|---|---|---|
+| `POST /orders?device=X` | «questa è la mia versione» | `204` |
+| `GET /orders?device=X` | «dammi quelle degli altri» | lista di `OrderDto` |
+| `GET /health` | «chi sei?» | `{deviceId, role}` |
+
+Il formato è `OrderDto`, lo stesso con cui l'ordine sta nel database: non c'è un
+modello di trasporto separato da tenere allineato.
+
+La cassa **non fonde e non decide**. Tiene *(ordine, dispositivo) → versione* e
+restituisce le versioni altrui; la politica di fusione, il riconoscimento del
+conflitto e l'orologio logico restano sui dispositivi, dov'erano già. È la
+ragione per cui `order_server.dart` è corto: il lavoro difficile era stato fatto
+prima, e in un posto che non è quello.
+
+La cassa passa comunque dal proprio `RemoteApi`, solo senza filo. Non è "il
+server": è un dispositivo con la sua coda e il suo rientro che si trova il
+registro sotto le dita. Se avesse un percorso tutto suo, i suoi ordini non
+entrerebbero mai nel registro e nessuno li vedrebbe.
+
+### La porta non si chiede
+
+`53170`, sopra 49152, dove sta l'intervallo effimero: nessun servizio noto la
+rivendica. Vale su entrambi i lati, come la 80 di HTTP, e nessuno deve
+impararla dall'altro.
+
+Per un po' il foglio impostazioni l'ha chiesta, e solo a chi è in sala — mentre
+la cassa non poteva cambiare quella su cui ascolta. Quel campo poteva soltanto
+far puntare un tablet dove non risponde nessuno, con un sintomo — «non arriva
+niente» — che non suggerisce di andare a guardare le impostazioni. Resta un
+parametro nel codice per i test, che chiedono la porta `0` per farsene assegnare
+una libera.
+
+### Scoperta: mDNS, con l'indirizzo manuale che resta
+
+Chi fa la cassa si annuncia come `_possync._tcp`; chi è in sala la cerca. Un
+indirizzo vuoto non significa più «configurazione a metà» ma **«cercala»**, ed è
+il valore da preferire, perché sopravvive a un cambio di indirizzo della cassa.
+
+**L'indirizzo digitato ha la precedenza**, e non è un ripiego di serie B: nei
+locali il Wi-Fi ospiti filtra spesso il multicast, ed è l'unica configurazione
+che si può sempre far funzionare. Per la stessa ragione un annuncio non riuscito
+non impedisce alla cassa di fare la cassa.
+
+Un indirizzo **scoperto** viene dimenticato quando smette di rispondere, uno
+**digitato** no. Senza quella distinzione, la cassa che riavvia con un indirizzo
+nuovo dal router resterebbe irraggiungibile fino al riavvio dell'app: la
+scoperta automatica funzionerebbe una volta sola.
+
+`NsdDiscovery` non ha test, ed è dichiarato nel file. Parla con i canali di
+piattaforma, che in `flutter test` non esistono: qualunque prova lì
+verificherebbe un simulacro. Il file è quindi sottile fino alla noia — nessuna
+decisione, solo traduzione — e tutto ciò che si può sbagliare sta dietro
+l'interfaccia `PeerDiscovery`, dove un doppio lo raggiunge.
+
+### L'elezione, e perché lo split-brain è sopravvivibile
+
+Se la cassa non risponde, si promuove **il dispositivo con l'identificativo più
+basso fra quelli che si annunciano**. È lo stesso confronto che rompe la parità
+fra due `Revision`, riusato — e non per economia: è ciò che permette a tutti di
+calcolare lo stesso risultato senza mettersi d'accordo, che è l'unica cosa che
+rende possibile un'elezione senza coordinatore.
+
+Due condizioni, ed entrambe servono. **Tre giri falliti di seguito**, perché un
+errore isolato è una rete che fa il suo mestiere e promuoversi al primo intoppo
+cambierebbe cassa a ogni pacchetto perso. E **nessuno che si annunci come
+cassa**: se c'è e si dichiara, non raggiungerla è un problema di questo tablet, e
+affiancargliene una seconda sposterebbe il guasto su tutti gli altri.
+
+Perché la regola sia applicabile, **anche chi è in sala si annuncia**, con il
+ruolo in un record TXT: un tablet che tace non è contabile. Il servizio che un
+follower pubblica non ascolta finché non viene promosso — dichiara una presenza,
+non un servizio pronto — e nessuno ci si collega, perché la ricerca della cassa
+filtra per ruolo.
+
+Lo **split-brain resta possibile**: una rete che si spezza in due tronconi
+produce due casse, una per metà, perché ciascuna vede solo sé stessa. È
+sopravvivibile grazie alla politica di fusione — le righe si uniscono perché
+l'unione è commutativa, lo stato lo decide la revisione più alta — e quando i
+tronconi si ritrovano gli ordini convergono. Si perde l'ordine di arrivo, non il
+contenuto.
+
+### Ripubblicare dopo un'elezione, e un errore che avevo scritto nel piano
+
+Nel piano di questa voce avevo scritto che dopo un cambio di cassa «i dispositivi
+ripubblicano le proprie versioni al giro successivo». **È falso**: la coda si
+svuota quando l'invio riesce, quindi un ordine già consegnato alla cassa vecchia
+non verrebbe mai rispedito. Il registro della nuova sarebbe nato vuoto e ci
+sarebbe rimasto, con tutti i tablet connessi e nessun errore da mostrare — il
+guasto peggiore, perché non si presenta.
+
+Serve un meccanismo vero, e `/health` lo permetteva già: restituisce
+l'identificativo e non un sì/no, perché la domanda utile non è «c'è qualcuno?» ma
+«c'è ancora quello di prima?». Quando l'identità della cassa cambia,
+`OrderRepublisher` rimette in coda gli ordini locali che non ci sono già. Sta
+fuori dal coordinatore di proposito: quello sa riconoscere il momento, non cosa
+sia una coda.
+
+### Un budget di ritentativi diverso in rete locale
+
+`PeerAwareRetryPolicy` sceglie la politica in base al ruolo. Verso il cloud il
+budget è otto tentativi con un tetto di cinque minuti — una decina di minuti in
+tutto, tarati su un servizio remoto che se tace un quarto d'ora è rotto. In sala
+sono sessanta tentativi, perché **la cassa spenta per venti minuti non è un
+guasto**: è qualcuno che l'ha riavviata o messa in carica di là, e rinunciare
+marcherebbe come falliti ordini di tavoli ancora occupati.
+
+Il tetto per singola attesa va invece nella direzione opposta, da cinque minuti a
+uno: con il tetto alto, la cassa che torna resterebbe inutilizzata fino a cinque
+minuti per un'attesa maturata mentre era spenta.
+
+Non è servito toccare il worker: la politica era già una strategia sostituibile.
+
+### Cosa serviva fuori dal codice Dart
+
+Due dichiarazioni nel manifest Android che, se mancano, si manifestano come
+guasti che non suggeriscono dove guardare:
+
+- **`INTERNET` anche in release.** Il template Flutter lo dichiara solo nei
+  manifest di debug e profile. Finché il backend era simulato in processo non
+  serviva; ora un APK di release funzionerebbe sulla macchina di chi sviluppa e
+  non su quella del cliente.
+- **`CHANGE_WIFI_MULTICAST_STATE`**, senza cui `NsdManager` non riceve le
+  risposte mDNS e ogni ricerca scade a vuoto.
+
+E `usesCleartextTraffic`, perché da Android 9 il traffico in chiaro è vietato per
+impostazione predefinita. Vorrebbe essere ristretto ai soli indirizzi privati, ma
+la configurazione di sicurezza di rete di Android accetta domini e non
+intervalli: non si può scrivere `192.168.0.0/16`.
+
+### La piattaforma Windows
+
+Il progetto ha `windows/` per una ragione pratica: la prova a due dispositivi
+richiede due dispositivi, e il PC fa il secondo senza chiedere in prestito un
+altro telefono. I due pacchetti con una parte nativa reggono il passaggio —
+sqlite3 arriva come DLL accanto all'eseguibile, `connectivity_plus` ha la sua
+implementazione Windows — verificato ad app avviata e non solo compilata.
+
+In CI c'è un lavoro `build-windows` che compila e basta: i test girano già su
+Linux e ripeterli direbbe la stessa cosa, mentre un errore di MSVC o un pacchetto
+senza implementazione Windows lì non si vedrebbe mai.
+
 ## SOLID, punto per punto
 
 **Single Responsibility.** Il `SyncWorker` faceva cinque cose: orchestrare la coda,
@@ -558,3 +756,27 @@ e riaperto il file.
   `aperto`, ed è voluto: è esattamente la scelta che la scheda di risoluzione offre
   all'operatore. Una macchina a stati che lo vietasse renderebbe irrisolvibile
   proprio il caso per cui la scheda esiste.
+- **In rete locale non c'è né TLS né autenticazione.** Chi è sul Wi-Fi del locale
+  è considerato fidato. I dispositivi non hanno un certificato e non c'è
+  un'autorità che glielo firmi, quindi TLS vorrebbe dire certificati
+  autofirmati e verifica disattivata — la stessa esposizione con più cerimonia.
+  È una scelta dichiarata anche nel manifest, dove si vede.
+- **L'elezione è semplificata.** Soglia fissa a tre giri, nessun consenso fra i
+  dispositivi, nessun mandato che scade: solo un confronto fra identificativi che
+  tutti calcolano allo stesso modo. Basta perché il caso da coprire è «la cassa si
+  è spenta», non «qualcuno mente sul proprio identificativo».
+- **L'ultima cassa vista vive in memoria.** Un riavvio dell'app la dimentica,
+  quindi un'elezione avvenuta mentre il tablet era spento non provoca la
+  ripubblicazione. Persisterla costerebbe una migrazione per un caso in cui gli
+  ordini nuovi ricostruiscono comunque il registro.
+- **Il servizio annunciato da chi è in sala non ascolta.** Dichiara una presenza,
+  perché l'elezione deve poter contare i dispositivi, e nessuno ci si collega
+  perché la ricerca filtra per ruolo. Farlo ascoltare davvero sarebbe più pulito e
+  richiederebbe a ogni tablet una porta propria da gestire.
+- **`NsdDiscovery` non ha test.** Parla con i canali di piattaforma, che in
+  `flutter test` non esistono. È la ragione per cui non contiene decisioni: tutto
+  ciò che si può sbagliare sta dietro `PeerDiscovery`, dove un doppio lo raggiunge.
+- **La rete locale non è trattata su iOS.** Il pacchetto `nsd` lo supporta, ma
+  servirebbe la dichiarazione `NSBonjourServices` nell'Info.plist e una verifica su
+  un dispositivo Apple: prometterlo senza averlo provato sarebbe una dichiarazione
+  non sostenuta, come già per il lavoro in background.

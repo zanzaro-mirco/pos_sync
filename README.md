@@ -2,7 +2,8 @@
 
 App Flutter **offline-first** per la raccolta ordini in sala: gli ordini si creano e si
 consultano anche senza rete, e vengono sincronizzati quando la connettività torna —
-senza mai generare duplicati.
+senza mai generare duplicati. Con il backend irraggiungibile i tablet si sincronizzano
+**fra loro sulla Wi-Fi del locale**, eleggendo da soli chi tiene il registro.
 
 [![CI](https://github.com/zanzaro-mirco/pos_sync/actions/workflows/ci.yml/badge.svg)](https://github.com/zanzaro-mirco/pos_sync/actions/workflows/ci.yml)
 
@@ -33,6 +34,8 @@ la rete è un dettaglio di sincronizzazione**.
                        └── WorkManager (Android, ad app chiusa)
                        │
                        ├──► RemoteApi (DTO) ──► backend idempotente su order.id
+                       │      └─ LanCoordinator sceglie: cloud simulato,
+                       │         registro in casa (cassa), o HTTP verso la cassa
                        │
                        └──► InboundMerger ──► ConflictPolicy ──┬─► fonde
                               tira le versioni degli altri     └─► o chiede
@@ -106,13 +109,25 @@ lib/
       in_memory_order_store.dart implementazione usata da test e demo
       local/                     schema, database e deposito su SQLite (Drift)
       remote_api.dart            contratto + backend simulato controllabile
+      order_registry.dart        cosa il punto di raccolta sa, e di chi
       connectivity_plus_monitor.dart  adattatore sul plugin di rete
       orders_repository_impl.dart
+    lan/                         la rete locale, quando il cloud non c'è
+      lan_protocol.dart          porta, percorsi e nome del servizio mDNS
+      order_server.dart          la cassa vista dagli altri tablet
+      http_remote_api.dart       il tablet in sala che le parla
+      local_registry_api.dart    la cassa che parla con sé stessa
+      lan_coordinator.dart       sceglie il backend in base al ruolo
+      peer_discovery.dart        contratto della scoperta + doppio inerte
+      nsd_discovery.dart         la scoperta vera, su mDNS
+      primary_election.dart      chi prende il registro se la cassa sparisce
+      peer_settings.dart         ruolo e indirizzo, con il deposito
     sync/
       backoff.dart               esponenziale con jitter
       sync_worker.dart           drenaggio della coda
       connectivity_monitor.dart  contratto sulla rete + monitor controllabile
       auto_sync.dart             dalla rete che torna al drenaggio, con jitter
+      order_republisher.dart     riaccoda tutto quando la cassa cambia identità
     presentation/
       orders_cubit.dart
       orders_state.dart
@@ -164,11 +179,19 @@ I test coprono i casi che contano, non le righe facili:
 | Decisione presa su un dispositivo | Chiude il conflitto anche sull'altro: nessuno decide due volte |
 | Qualunque delle due scelte | Nessuna riga sparisce — è la ragione per cui è sicuro chiedere |
 | Un dispositivo offline | Non blocca l'altro, e al rientro converge |
-| **Migrazione dello schema v1 → v2** | Una base dati scritta dalla versione precedente, con dentro ordini non ancora inviati, arriva intatta |
+| **Migrazione dello schema v1 → v3 e v2 → v3** | Una base dati scritta da una versione precedente, con dentro ordini non ancora inviati, arriva intatta |
 | **Incassare e basta** | *Non* è un conflitto: le due versioni si fondono, il pagamento arriva — il caso normale non interrompe nessuno |
 | La sequenza della dimostrazione | Incassa, aggiungi, sincronizza: il conflitto nasce, e la scheda dice quanti articoli non erano nel conto |
 | Sincronizzare a conflitto aperto | Nessuna scheda duplicata, per quante volte si sincronizzi |
 | Le azioni sul tavolo | Il foglio non propone lo stato in cui il tavolo già si trova, e la voce dimostrativa sparisce se non le si passa un secondo dispositivo |
+| **Due istanze in rete locale** | Il criterio della voce: HTTP vero su `127.0.0.1`, cloud spento, gli ordini si vedono nei due versi e convergono a ordine invertito |
+| Traduzione degli errori HTTP | Timeout e socket sono recuperabili, `4xx` no: sbagliarla farebbe uscire dalla coda ordini mai arrivati |
+| La cassa che sparisce | Gli ordini restano in coda, e non si perde niente |
+| **Nessuna cassa in rete** | Non si ripiega sul backend simulato: accettarli li marcherebbe come inviati verso un registro che nessun altro legge |
+| Indirizzo scoperto contro digitato | Quello scoperto si dimentica quando smette di rispondere, quello digitato no |
+| **Elezione** | Su tre dispositivi con gli stessi dati se ne promuove esattamente uno, e una cassa che si annuncia ancora non viene sostituita |
+| Cassa cambiata di identità | Gli ordini locali tornano in coda e arrivano al registro nuovo — che altrimenti nascerebbe vuoto senza che nessuno segnali niente |
+| Il foglio della rete locale | Le tre scelte, l'indirizzo solo a chi serve, la porta che non si digita in nessun ruolo |
 
 Tempo, identificativi, log, politica di ritentativo, **contatore logico e politica di
 fusione** sono tutti iniettati: i test sul backoff girano in millisecondi invece di
@@ -238,6 +261,33 @@ Il secondo passo da solo non produce niente, ed è corretto: se il pagamento arr
 della comanda le due versioni conterrebbero le stesse righe e si fonderebbero in silenzio.
 Il conflitto nasce perché la versione pagata **non contiene** ciò che è arrivato dopo.
 
+### La prova a due dispositivi
+
+Serve un telefono e un PC — il progetto ha anche la build Windows per questo —
+sulla **stessa Wi-Fi**. Non c'è niente da spegnere: il "cloud" di questa demo è
+simulato **in processo**, quindi fra due dispositivi non potrebbe trasportare
+niente comunque. È la condizione «con il cloud spento» del requisito, ed è vera
+per costruzione.
+
+Il prima/dopo si mostra col dito, senza toccare la rete:
+
+1. **Entrambi su «Nessuna rete locale».** Crea un tavolo sul PC: sul telefono non
+   compare, e non con un errore — la sincronizzazione riesce, l'ordine risulta
+   inviato, semplicemente non arriva da nessuna parte.
+2. Sul telefono: il pulsante **Rete locale** nella barra → **«Questo dispositivo è
+   la cassa»**. Il foglio mostra i suoi indirizzi IPv4.
+3. Sul PC: stesso pulsante → **«Questo dispositivo è in sala»**. L'indirizzo è
+   **facoltativo**: lasciandolo vuoto la cassa viene cercata sulla rete via mDNS,
+   e si scrive quando il Wi-Fi filtra il multicast, cosa che nei locali capita.
+4. Stesso gesto del passo 1 → l'ordine compare. E anche al contrario.
+
+Fra il passo 1 e il passo 4 sono cambiate due impostazioni e nient'altro.
+
+Per vedere l'elezione: con i due collegati, chiudi l'app sulla cassa. Servono tre
+giri falliti **e** che il suo annuncio sia sparito dalla rete — finché il record
+mDNS non scade, il tablet in sala continua ad aspettarla invece di sostituirla,
+ed è voluto. Poi prende il registro, e i suoi ordini restano tutti al loro posto.
+
 ## Stato e prossimi passi
 
 La logica di sincronizzazione è completa e testata, i dati sopravvivono alla chiusura
@@ -252,10 +302,17 @@ dell'app e la coda riparte da sola quando la rete torna. Cosa manca per un uso r
       verificabile in CI, si osserva con `adb shell dumpsys jobscheduler` e `logcat`
 - [x] Widget test sulla `OrdersPage` e golden test sulla riga dell'ordine, in CI con la
       versione di Flutter fissata
-- [ ] Client HTTP reale al posto di `FakeRemoteApi`
+- [x] Client HTTP reale al posto di `FakeRemoteApi` — `HttpRemoteApi` e `OrderServer`
+      su `dart:io`, con gli errori di rete tradotti nella gerarchia sealed che coda e
+      backoff usavano già; il backend simulato resta per la demo su un dispositivo solo
 - [x] Gestione dei conflitti fra dispositivi — contatore logico di Lamport, righe
       append-only e stato del tavolo last-write-wins, con il caso ambiguo esposto
       all'operatore invece che risolto in silenzio
+- [x] Sincronizzazione peer-to-peer in rete locale — la cassa tiene il registro e lo
+      espone via HTTP, chi è in sala la trova via mDNS o per indirizzo, e se sparisce
+      viene eletta una cassa nuova; il `SyncWorker` non è cambiato di una riga
+- [x] Build Windows, con un lavoro dedicato in CI — serve a fare il secondo dispositivo
+      della prova in rete locale
 - [ ] Test end-to-end su emulatore con `integration_test`
 
 ## Licenza
