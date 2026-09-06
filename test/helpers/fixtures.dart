@@ -43,10 +43,15 @@ class TestEnv {
     this.deviceId = 'dispositivo-1',
     String idPrefix = 'id',
     bool withInbound = true,
+    RemoteApi? remoteApi,
   }) {
     clock = FakeClock(now ?? DateTime(2026, 7, 27, 12));
     store = InMemoryOrderStore();
-    api = FakeRemoteApi(deviceId: deviceId, server: server);
+    // Di norma il backend è quello finto in processo. La voce sulla rete
+    // locale ne inietta altri due — il primario, che scrive nel registro che
+    // ha in casa, e il follower, che ci parla via HTTP — e questo è l'unico
+    // punto che deve saperlo.
+    api = remoteApi ?? FakeRemoteApi(deviceId: deviceId, server: server);
     logger = InMemoryLogger();
     ids = SequentialIdGenerator(prefix: idPrefix);
     clockStore = InMemoryLogicalClockStore(deviceId: deviceId);
@@ -90,7 +95,8 @@ class TestEnv {
 
   late final FakeClock clock;
   late final InMemoryOrderStore store;
-  late final FakeRemoteApi api;
+  late final RemoteApi api;
+
   late final InMemoryLogger logger;
   late final SequentialIdGenerator ids;
   late final InMemoryLogicalClockStore clockStore;
@@ -98,6 +104,11 @@ class TestEnv {
   late final OrdersRepositoryImpl repository;
   late final InboundMerger merger;
   late final SyncWorker worker;
+
+  /// Le manopole che esistono solo sul backend finto: l'interruttore della rete
+  /// e la risposta persa. Un cast e non un campo a parte, così resta evidente
+  /// che sono un attrezzo da test e non parte del contratto.
+  FakeRemoteApi get fake => api as FakeRemoteApi;
 
   Future<void> dispose() => store.dispose();
 }

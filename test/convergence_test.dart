@@ -365,7 +365,7 @@ void main() {
     test('un dispositivo scollegato non blocca l altro, e rientra dopo',
         () async {
       final Room room = await Room.open();
-      room.b.api.online = false;
+      room.b.fake.online = false;
 
       await room.a.repository
           .addLines(orderId: room.orderId, lines: <OrderLineDraft>[croissant]);
@@ -377,7 +377,7 @@ void main() {
       expect((await room.orderOf(room.b)).lines.length, 1,
           reason: 'offline non si vede il cornetto');
 
-      room.b.api.online = true;
+      room.b.fake.online = true;
       await room.settle();
 
       expect(

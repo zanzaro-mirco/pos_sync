@@ -22,7 +22,7 @@ void main() {
       final SyncResult result = await env.worker.drain();
 
       expect(result.sent, 1);
-      expect(env.api.storedOrderIds, <String>{order.id});
+      expect(env.fake.storedOrderIds, <String>{order.id});
       expect((await env.store.orderById(order.id))!.status, SyncStatus.synced);
       expect(await env.store.pendingOutbox(), isEmpty);
     });
@@ -36,14 +36,14 @@ void main() {
     test('il payload inviato è un DTO, non il modello di dominio', () async {
       await createOrder();
       await env.worker.drain();
-      expect(env.api.received.single.lines.single.productId, 'p-01');
-      expect(env.api.received.single.createdAtIso, isNotEmpty);
+      expect(env.fake.received.single.lines.single.productId, 'p-01');
+      expect(env.fake.received.single.createdAtIso, isNotEmpty);
     });
   });
 
   group('rete assente', () {
     test('mantiene l ordine in coda e riprogramma il tentativo', () async {
-      env.api.online = false;
+      env.fake.online = false;
       final Order order = await createOrder();
 
       final SyncResult result = await env.worker.drain();
@@ -55,7 +55,7 @@ void main() {
     });
 
     test('non riprova prima che il backoff sia trascorso', () async {
-      env.api.online = false;
+      env.fake.online = false;
       await createOrder();
       await env.worker.drain();
 
@@ -65,12 +65,12 @@ void main() {
     });
 
     test('riprova quando il backoff è trascorso e va a buon fine', () async {
-      env.api.online = false;
+      env.fake.online = false;
       final Order order = await createOrder();
       await env.worker.drain();
 
       env.clock.advance(const Duration(minutes: 10));
-      env.api.online = true;
+      env.fake.online = true;
 
       expect((await env.worker.drain()).sent, 1);
       expect((await env.store.orderById(order.id))!.status, SyncStatus.synced);
@@ -78,7 +78,7 @@ void main() {
 
     test('dopo maxAttempts marca l ordine come fallito e lo registra',
         () async {
-      env.api.online = false;
+      env.fake.online = false;
       final Order order = await createOrder();
 
       for (int i = 0; i < 5; i++) {
@@ -99,17 +99,17 @@ void main() {
     test('la risposta persa non genera un ordine duplicato', () async {
       // Il server registra l'ordine ma il client non riceve la conferma: è il
       // caso che rende necessario l'id generato dal client.
-      env.api.loseResponse = true;
+      env.fake.loseResponse = true;
       final Order order = await createOrder();
 
       await env.worker.drain();
       env.clock.advance(const Duration(minutes: 10));
-      env.api.loseResponse = false;
+      env.fake.loseResponse = false;
       await env.worker.drain();
 
-      expect(env.api.receivedOrderIds.length, 2, reason: 'due invii');
-      expect(env.api.storedOrderIds.length, 1, reason: 'un solo ordine');
-      expect(env.api.duplicateCount, 1);
+      expect(env.fake.receivedOrderIds.length, 2, reason: 'due invii');
+      expect(env.fake.storedOrderIds.length, 1, reason: 'un solo ordine');
+      expect(env.fake.duplicateCount, 1);
       expect((await env.store.orderById(order.id))!.status, SyncStatus.synced);
     });
   });
@@ -144,6 +144,6 @@ void main() {
       env.worker.drain(),
     ]);
 
-    expect(env.api.receivedOrderIds.length, 1);
+    expect(env.fake.receivedOrderIds.length, 1);
   });
 }

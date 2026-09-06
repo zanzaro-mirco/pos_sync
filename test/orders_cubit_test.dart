@@ -46,7 +46,7 @@ void main() {
   blocTest<OrdersCubit, OrdersState>(
     'aggiungere un ordine offline lo mostra comunque nella lista',
     build: () {
-      env.api.online = false;
+      env.fake.online = false;
       return build();
     },
     act: (OrdersCubit cubit) async {

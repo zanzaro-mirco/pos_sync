@@ -97,7 +97,7 @@ class OrderDto {
     required this.tableNumber,
     required this.createdAtIso,
     required this.lines,
-    this.state = 'aperto',
+    this.state = 'open',
     this.stateRevisionCounter = 0,
     this.stateRevisionDevice = '',
   });
@@ -120,7 +120,7 @@ class OrderDto {
             .whereType<Map<String, dynamic>>()
             .map(OrderLineDto.fromJson)
             .toList(),
-        state: json['state'] as String? ?? 'aperto',
+        state: json['state'] as String? ?? 'open',
         stateRevisionCounter: json['stateRevisionCounter'] as int? ?? 0,
         stateRevisionDevice: json['stateRevisionDevice'] as String? ?? '',
       );

@@ -25,7 +25,7 @@ void main() {
 
   setUp(() {
     tablet = TestEnv();
-    other = SecondDevice(server: tablet.api.server);
+    other = SecondDevice(server: tablet.fake.server);
   });
 
   tearDown(() => tablet.dispose());

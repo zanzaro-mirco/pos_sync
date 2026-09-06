@@ -79,7 +79,7 @@ void main() {
     // Il criterio di fatto della voce 2.2 della roadmap.
     // -------------------------------------------------------------------
     test('il monitor passa a online e la coda si svuota da sola', () async {
-      env.api.online = false;
+      env.fake.online = false;
       makeAutoSync().start();
 
       await env.repository.createOrder(tableNumber: 7, lines: sampleLines);
@@ -87,25 +87,25 @@ void main() {
           reason: 'creato offline, deve restare in coda');
 
       // La rete torna. Da qui in avanti nessuno chiama drain().
-      env.api.online = true;
+      env.fake.online = true;
       monitor.emit(true);
 
       await waitUntil(
         () async => await env.store.pendingCount() == 0,
         'la coda non si è svuotata da sola',
       );
-      expect(env.api.storedOrderIds, <String>{'id-1'});
+      expect(env.fake.storedOrderIds, <String>{'id-1'});
       expect(waits, hasLength(1), reason: 'un solo drenaggio');
     });
 
     test('lo stato iniziale online conta come transizione', () async {
-      env.api.online = false;
+      env.fake.online = false;
       await env.repository.createOrder(tableNumber: 1, lines: sampleLines);
 
       // Coda sopravvissuta alla sessione precedente, app riaperta sotto rete:
       // non arriva nessun cambiamento, quindi senza questo la coda resterebbe
       // ferma per sempre.
-      env.api.online = true;
+      env.fake.online = true;
       monitor.emit(true);
       makeAutoSync().start();
 
@@ -185,7 +185,7 @@ void main() {
     });
 
     test('se la rete ricade durante attesa il drenaggio non parte', () async {
-      env.api.online = false;
+      env.fake.online = false;
       await env.repository.createOrder(tableNumber: 1, lines: sampleLines);
 
       makeAutoSync(
@@ -195,11 +195,11 @@ void main() {
         },
       ).start();
 
-      env.api.online = true;
+      env.fake.online = true;
       monitor.emit(true);
       await pump();
 
-      expect(env.api.received, isEmpty);
+      expect(env.fake.received, isEmpty);
       expect(await env.store.pendingCount(), 1);
     });
 

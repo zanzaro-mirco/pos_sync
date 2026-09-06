@@ -1,5 +1,6 @@
 import '../domain/order.dart';
 import 'dto/order_dto.dart';
+import 'order_registry.dart';
 
 /// Errori del trasporto, modellati come gerarchia chiusa.
 ///
@@ -54,7 +55,7 @@ abstract interface class RemoteApi {
 /// che parlano con lo stesso backend — che è esattamente lo scenario da
 /// riprodurre per verificare la convergenza, e che con una classe sola non si
 /// poteva esprimere.
-class FakeServer {
+class FakeServer implements OrderRegistry {
   /// Per ogni ordine, l'ultima versione ricevuta da ciascun dispositivo.
   final Map<String, Map<String, Order>> _versions =
       <String, Map<String, Order>>{};
@@ -74,12 +75,14 @@ class FakeServer {
   /// crearne uno nuovo, e questo contatore lo rende visibile ai test.
   int get duplicateCount => receivedOrderIds.length - storedOrderIds.length;
 
+  @override
   void store(Order order, String deviceId) {
     received.add(OrderDto.fromDomain(order));
     (_versions[order.id] ??= <String, Order>{})[deviceId] = order;
   }
 
   /// Tutte le versioni conosciute, appiattite.
+  @override
   List<Order> allVersions() => <Order>[
         for (final Map<String, Order> byDevice in _versions.values)
           ...byDevice.values,
@@ -89,6 +92,7 @@ class FakeServer {
   ///
   /// L'esclusione guarda chi ha inviato, non cosa contiene la versione: è il
   /// server a saperlo, ed è l'unico posto in cui l'informazione esiste.
+  @override
   List<Order> versionsExcept(String deviceId) => <Order>[
         for (final Map<String, Order> byDevice in _versions.values)
           for (final MapEntry<String, Order> e in byDevice.entries)
