@@ -7,6 +7,8 @@ import '../features/orders/data/connectivity_plus_monitor.dart';
 import '../features/orders/data/local/app_database.dart';
 import '../features/orders/data/local/drift_device_store.dart';
 import '../features/orders/data/local/drift_order_store.dart';
+import '../features/orders/data/local/drift_peer_settings.dart';
+import '../features/orders/data/order_registry.dart';
 import '../features/orders/data/order_store.dart';
 import '../features/orders/data/orders_repository_impl.dart';
 import '../features/orders/data/remote_api.dart';
@@ -14,6 +16,9 @@ import '../features/orders/data/second_device.dart';
 import '../features/orders/domain/orders_repository.dart';
 import '../features/orders/sync/auto_sync.dart';
 import '../features/orders/sync/conflict_policy.dart';
+import '../features/orders/lan/lan_coordinator.dart';
+import '../features/orders/lan/peer_retry_policy.dart';
+import '../features/orders/lan/peer_settings.dart';
 import '../features/orders/sync/connectivity_monitor.dart';
 import '../features/orders/sync/inbound_merger.dart';
 import '../features/orders/sync/sync_worker.dart';
@@ -61,11 +66,34 @@ void setUpDependencies({bool demoMode = true}) {
   sl.registerLazySingleton<IdGenerator>(UuidGenerator.new);
   sl.registerLazySingleton<Logger>(SilentLogger.new);
 
+  // Un registro solo, condiviso fra la modalità dimostrativa e la rete
+  // locale: è ciò che *questo* dispositivo sa degli altri, e averne due
+  // significherebbe che la stessa domanda ha due risposte a seconda di chi la
+  // pone.
+  sl.registerLazySingleton<FakeServer>(FakeServer.new);
+  sl.registerLazySingleton<OrderRegistry>(() => sl<FakeServer>());
+
   // Registrato anche sotto il tipo concreto, come il deposito: in demo la
   // composition root ha bisogno di raggiungerne l'interruttore della rete.
   sl.registerLazySingleton<FakeRemoteApi>(
-      () => FakeRemoteApi(online: demoMode));
-  sl.registerLazySingleton<RemoteApi>(() => sl<FakeRemoteApi>());
+      () => FakeRemoteApi(online: demoMode, server: sl<FakeServer>()));
+
+  sl.registerLazySingleton<PeerSettingsStore>(() =>
+      DriftPeerSettings(sl<AppDatabase>(), idGenerator: sl<IdGenerator>()));
+
+  // Il backend che il resto del sistema vede è il coordinatore, non il finto:
+  // sceglie da sé se parlare in processo, tenere il registro o chiederlo a un
+  // altro tablet, e chi lo usa non deve sapere quale delle tre.
+  sl.registerLazySingleton<LanCoordinator>(
+    () => LanCoordinator(
+      settings: sl<PeerSettingsStore>(),
+      registry: sl<OrderRegistry>(),
+      deviceId: sl<LogicalClockStore>().loadDeviceId,
+      standalone: sl<FakeRemoteApi>(),
+      logger: sl<Logger>(),
+    ),
+  );
+  sl.registerLazySingleton<RemoteApi>(() => sl<LanCoordinator>());
 
   // Il secondo tablet esiste solo in demo, ed è l'unica dipendenza registrata
   // sotto condizione: senza di lui il rientro non trova mai niente — c'è un
@@ -74,7 +102,7 @@ void setUpDependencies({bool demoMode = true}) {
   // scontata.
   if (demoMode) {
     sl.registerLazySingleton<SecondDevice>(
-        () => SecondDevice(server: sl<FakeRemoteApi>().server));
+        () => SecondDevice(server: sl<FakeServer>()));
   }
 
   sl.registerLazySingleton<ConnectivityMonitor>(ConnectivityPlusMonitor.new);
@@ -115,6 +143,11 @@ void setUpDependencies({bool demoMode = true}) {
       inbound: sl<InboundMerger>(),
       clock: sl<Clock>(),
       logger: sl<Logger>(),
+      // In rete locale si insiste molto più a lungo: la cassa spenta per venti
+      // minuti non è un guasto, e rinunciare marcherebbe come falliti ordini di
+      // tavoli ancora occupati. Non è servito toccare il worker — la politica
+      // era già una strategia sostituibile.
+      retryPolicy: PeerAwareRetryPolicy(coordinator: sl<LanCoordinator>()),
     ),
   );
 

@@ -19,6 +19,9 @@ import 'package:sqlite3/sqlite3.dart' show Database;
 import 'package:pos_sync/features/orders/data/local/app_database.dart';
 import 'package:pos_sync/features/orders/data/local/drift_device_store.dart';
 import 'package:pos_sync/features/orders/data/local/drift_order_store.dart';
+import 'package:pos_sync/features/orders/data/local/drift_peer_settings.dart';
+import 'package:pos_sync/features/orders/lan/lan_protocol.dart';
+import 'package:pos_sync/features/orders/lan/peer_settings.dart';
 import 'package:pos_sync/features/orders/domain/order.dart';
 import 'package:pos_sync/features/orders/domain/order_conflict.dart';
 import 'package:pos_sync/features/orders/domain/order_line.dart';
@@ -60,6 +63,67 @@ const List<String> _schemaV1 = <String>[
     attempts INTEGER NOT NULL DEFAULT 0,
     next_attempt_at INTEGER NULL,
     last_error TEXT NULL,
+    PRIMARY KEY (id)
+  )''',
+];
+
+/// Lo schema della versione 2, scritto a mano come quello della versione 1.
+///
+/// Serve perche' i due salti passano da strade diverse. Chi arriva dalla
+/// versione 1 riceve `device_identity` da `createTable`, che usa la
+/// definizione **di oggi** e quindi contiene gia' le colonne della versione 3;
+/// chi arriva dalla 2 ha quella tabella senza, e le riceve con `ALTER TABLE`.
+/// Provare solo il salto piu' lungo lascerebbe l'altro ramo mai eseguito.
+const List<String> _schemaV2 = <String>[
+  '''
+  CREATE TABLE orders (
+    id TEXT NOT NULL,
+    table_number INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'open',
+    state_revision_counter INTEGER NOT NULL DEFAULT 0,
+    state_revision_device TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (id)
+  )''',
+  '''
+  CREATE TABLE order_lines (
+    order_id TEXT NOT NULL REFERENCES orders (id) ON DELETE CASCADE,
+    position INTEGER NOT NULL,
+    line_id TEXT NOT NULL DEFAULT '',
+    added_at_counter INTEGER NOT NULL DEFAULT 0,
+    added_at_device TEXT NOT NULL DEFAULT '',
+    product_id TEXT NOT NULL,
+    description TEXT NOT NULL,
+    quantity INTEGER NOT NULL,
+    unit_price_cents INTEGER NOT NULL,
+    PRIMARY KEY (order_id, position)
+  )''',
+  '''
+  CREATE TABLE outbox (
+    id TEXT NOT NULL,
+    order_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at INTEGER NULL,
+    last_error TEXT NULL,
+    PRIMARY KEY (id)
+  )''',
+  '''
+  CREATE TABLE conflicts (
+    id TEXT NOT NULL,
+    order_id TEXT NOT NULL,
+    mine TEXT NOT NULL,
+    theirs TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    detected_at INTEGER NOT NULL,
+    PRIMARY KEY (id)
+  )''',
+  '''
+  CREATE TABLE device_identity (
+    id INTEGER NOT NULL,
+    device_id TEXT NOT NULL,
+    counter INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (id)
   )''',
 ];
@@ -117,11 +181,21 @@ void main() {
     expect(order.totalCents, 390);
   });
 
-  test('lo schema arriva alla versione 2', () async {
+  test('lo schema arriva alla versione corrente', () async {
     await DriftOrderStore(db).allOrders(); // forza la migrazione
     final List<QueryRow> rows =
         await db.customSelect('PRAGMA user_version').get();
-    expect(rows.single.data['user_version'], 2);
+    expect(rows.single.data['user_version'], 3);
+  });
+
+  test('dalla versione 1 il ruolo in rete locale nasce spento', () async {
+    // Non e' un dettaglio: un dispositivo aggiornato non deve trovarsi
+    // improvvisamente dentro una rete locale che nessuno ha configurato.
+    final PeerSettings settings = await DriftPeerSettings(db).load();
+
+    expect(settings.role, PeerRole.standalone);
+    expect(settings.primaryHost, isEmpty);
+    expect(settings.primaryPort, lanPort);
   });
 
   test('gli ordini vecchi nascono aperti e senza revisione', () async {
@@ -186,5 +260,58 @@ void main() {
 
     expect(second, first);
     expect(await DriftDeviceStore(db).loadCounter(), 12);
+  });
+
+  group('dalla versione 2', () {
+    // Il salto v2 -> v3 passa da `ALTER TABLE`, non da `createTable`: e' un
+    // ramo diverso del `onUpgrade`, e senza questo gruppo non lo eseguirebbe
+    // nessuno.
+    late Directory directoryV2;
+    late AppDatabase dbV2;
+
+    setUp(() async {
+      directoryV2 = await Directory.systemTemp.createTemp('pos_sync_v2');
+      dbV2 = AppDatabase(
+        NativeDatabase(File('${directoryV2.path}/pos_sync.db'),
+            setup: (Database raw) {
+          for (final String ddl in _schemaV2) {
+            raw.execute(ddl);
+          }
+          raw.execute(
+            "INSERT INTO orders VALUES ('o-9', 4, ${t0.microsecondsSinceEpoch}, "
+            "'pending', 'served', 3, 'tablet-a')",
+          );
+          raw.execute(
+            "INSERT INTO device_identity VALUES (1, 'tablet-storico', 7)",
+          );
+          raw.execute('PRAGMA user_version = 2');
+        }),
+      );
+    });
+
+    tearDown(() async {
+      await dbV2.close();
+      await directoryV2.delete(recursive: true);
+    });
+
+    test('le colonne del ruolo si aggiungono senza toccare il resto', () async {
+      final PeerSettings settings = await DriftPeerSettings(dbV2).load();
+
+      expect(settings.role, PeerRole.standalone);
+      expect(settings.primaryPort, lanPort);
+      expect(await DriftDeviceStore(dbV2).loadDeviceId(), 'tablet-storico',
+          reason: "l'identita' del dispositivo non si tocca");
+      expect(await DriftDeviceStore(dbV2).loadCounter(), 7);
+    });
+
+    test('gli ordini della versione 2 arrivano interi', () async {
+      final Order order = (await DriftOrderStore(dbV2).allOrders()).single;
+
+      expect(order.id, 'o-9');
+      expect(order.state, OrderState.served,
+          reason: 'lo stato del tavolo non si perde nel salto');
+      expect(order.stateRevision.counter, 3);
+      expect(order.stateRevision.deviceId, 'tablet-a');
+    });
   });
 }

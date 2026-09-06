@@ -1648,8 +1648,32 @@ class $DeviceIdentityTable extends DeviceIdentity
       type: DriftSqlType.int,
       requiredDuringInsert: false,
       defaultValue: const Constant<int>(0));
+  static const VerificationMeta _roleMeta = const VerificationMeta('role');
   @override
-  List<GeneratedColumn> get $columns => [id, deviceId, counter];
+  late final GeneratedColumn<String> role = GeneratedColumn<String>(
+      'role', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant<String>('standalone'));
+  static const VerificationMeta _primaryHostMeta =
+      const VerificationMeta('primaryHost');
+  @override
+  late final GeneratedColumn<String> primaryHost = GeneratedColumn<String>(
+      'primary_host', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant<String>(''));
+  static const VerificationMeta _primaryPortMeta =
+      const VerificationMeta('primaryPort');
+  @override
+  late final GeneratedColumn<int> primaryPort = GeneratedColumn<int>(
+      'primary_port', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant<int>(53170));
+  @override
+  List<GeneratedColumn> get $columns =>
+      [id, deviceId, counter, role, primaryHost, primaryPort];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -1673,6 +1697,22 @@ class $DeviceIdentityTable extends DeviceIdentity
       context.handle(_counterMeta,
           counter.isAcceptableOrUnknown(data['counter']!, _counterMeta));
     }
+    if (data.containsKey('role')) {
+      context.handle(
+          _roleMeta, role.isAcceptableOrUnknown(data['role']!, _roleMeta));
+    }
+    if (data.containsKey('primary_host')) {
+      context.handle(
+          _primaryHostMeta,
+          primaryHost.isAcceptableOrUnknown(
+              data['primary_host']!, _primaryHostMeta));
+    }
+    if (data.containsKey('primary_port')) {
+      context.handle(
+          _primaryPortMeta,
+          primaryPort.isAcceptableOrUnknown(
+              data['primary_port']!, _primaryPortMeta));
+    }
     return context;
   }
 
@@ -1688,6 +1728,12 @@ class $DeviceIdentityTable extends DeviceIdentity
           .read(DriftSqlType.string, data['${effectivePrefix}device_id'])!,
       counter: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}counter'])!,
+      role: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}role'])!,
+      primaryHost: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}primary_host'])!,
+      primaryPort: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}primary_port'])!,
     );
   }
 
@@ -1702,14 +1748,42 @@ class DeviceRow extends DataClass implements Insertable<DeviceRow> {
   final int id;
   final String deviceId;
   final int counter;
+
+  /// Che parte fa questo dispositivo in rete locale.
+  ///
+  /// Sta qui e non in una tabella sua per la stessa ragione del contatore: è
+  /// una cassetta a riga singola, e una tabella in più per tre colonne
+  /// sarebbe cerimonia. Il valore predefinito non è una comodità — un'app
+  /// appena installata deve funzionare senza che nessuno abbia configurato
+  /// niente.
+  final String role;
+
+  /// Indirizzo del primario, significativo solo per un follower.
+  final String primaryHost;
+
+  /// Deve valere quanto `lanPort` in `lan/lan_protocol.dart`.
+  ///
+  /// Scritto a mano invece di importare la costante perché drift **ricopia
+  /// questa espressione nel codice generato**, che non ha quell'import e non
+  /// compilerebbe. I due valori sono tenuti allineati da un test, che è il
+  /// solo modo per accorgersene se uno dei due cambia.
+  final int primaryPort;
   const DeviceRow(
-      {required this.id, required this.deviceId, required this.counter});
+      {required this.id,
+      required this.deviceId,
+      required this.counter,
+      required this.role,
+      required this.primaryHost,
+      required this.primaryPort});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
     map['id'] = Variable<int>(id);
     map['device_id'] = Variable<String>(deviceId);
     map['counter'] = Variable<int>(counter);
+    map['role'] = Variable<String>(role);
+    map['primary_host'] = Variable<String>(primaryHost);
+    map['primary_port'] = Variable<int>(primaryPort);
     return map;
   }
 
@@ -1718,6 +1792,9 @@ class DeviceRow extends DataClass implements Insertable<DeviceRow> {
       id: Value(id),
       deviceId: Value(deviceId),
       counter: Value(counter),
+      role: Value(role),
+      primaryHost: Value(primaryHost),
+      primaryPort: Value(primaryPort),
     );
   }
 
@@ -1728,6 +1805,9 @@ class DeviceRow extends DataClass implements Insertable<DeviceRow> {
       id: serializer.fromJson<int>(json['id']),
       deviceId: serializer.fromJson<String>(json['deviceId']),
       counter: serializer.fromJson<int>(json['counter']),
+      role: serializer.fromJson<String>(json['role']),
+      primaryHost: serializer.fromJson<String>(json['primaryHost']),
+      primaryPort: serializer.fromJson<int>(json['primaryPort']),
     );
   }
   @override
@@ -1737,19 +1817,37 @@ class DeviceRow extends DataClass implements Insertable<DeviceRow> {
       'id': serializer.toJson<int>(id),
       'deviceId': serializer.toJson<String>(deviceId),
       'counter': serializer.toJson<int>(counter),
+      'role': serializer.toJson<String>(role),
+      'primaryHost': serializer.toJson<String>(primaryHost),
+      'primaryPort': serializer.toJson<int>(primaryPort),
     };
   }
 
-  DeviceRow copyWith({int? id, String? deviceId, int? counter}) => DeviceRow(
+  DeviceRow copyWith(
+          {int? id,
+          String? deviceId,
+          int? counter,
+          String? role,
+          String? primaryHost,
+          int? primaryPort}) =>
+      DeviceRow(
         id: id ?? this.id,
         deviceId: deviceId ?? this.deviceId,
         counter: counter ?? this.counter,
+        role: role ?? this.role,
+        primaryHost: primaryHost ?? this.primaryHost,
+        primaryPort: primaryPort ?? this.primaryPort,
       );
   DeviceRow copyWithCompanion(DeviceIdentityCompanion data) {
     return DeviceRow(
       id: data.id.present ? data.id.value : this.id,
       deviceId: data.deviceId.present ? data.deviceId.value : this.deviceId,
       counter: data.counter.present ? data.counter.value : this.counter,
+      role: data.role.present ? data.role.value : this.role,
+      primaryHost:
+          data.primaryHost.present ? data.primaryHost.value : this.primaryHost,
+      primaryPort:
+          data.primaryPort.present ? data.primaryPort.value : this.primaryPort,
     );
   }
 
@@ -1758,54 +1856,84 @@ class DeviceRow extends DataClass implements Insertable<DeviceRow> {
     return (StringBuffer('DeviceRow(')
           ..write('id: $id, ')
           ..write('deviceId: $deviceId, ')
-          ..write('counter: $counter')
+          ..write('counter: $counter, ')
+          ..write('role: $role, ')
+          ..write('primaryHost: $primaryHost, ')
+          ..write('primaryPort: $primaryPort')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(id, deviceId, counter);
+  int get hashCode =>
+      Object.hash(id, deviceId, counter, role, primaryHost, primaryPort);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is DeviceRow &&
           other.id == this.id &&
           other.deviceId == this.deviceId &&
-          other.counter == this.counter);
+          other.counter == this.counter &&
+          other.role == this.role &&
+          other.primaryHost == this.primaryHost &&
+          other.primaryPort == this.primaryPort);
 }
 
 class DeviceIdentityCompanion extends UpdateCompanion<DeviceRow> {
   final Value<int> id;
   final Value<String> deviceId;
   final Value<int> counter;
+  final Value<String> role;
+  final Value<String> primaryHost;
+  final Value<int> primaryPort;
   const DeviceIdentityCompanion({
     this.id = const Value.absent(),
     this.deviceId = const Value.absent(),
     this.counter = const Value.absent(),
+    this.role = const Value.absent(),
+    this.primaryHost = const Value.absent(),
+    this.primaryPort = const Value.absent(),
   });
   DeviceIdentityCompanion.insert({
     this.id = const Value.absent(),
     required String deviceId,
     this.counter = const Value.absent(),
+    this.role = const Value.absent(),
+    this.primaryHost = const Value.absent(),
+    this.primaryPort = const Value.absent(),
   }) : deviceId = Value(deviceId);
   static Insertable<DeviceRow> custom({
     Expression<int>? id,
     Expression<String>? deviceId,
     Expression<int>? counter,
+    Expression<String>? role,
+    Expression<String>? primaryHost,
+    Expression<int>? primaryPort,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (deviceId != null) 'device_id': deviceId,
       if (counter != null) 'counter': counter,
+      if (role != null) 'role': role,
+      if (primaryHost != null) 'primary_host': primaryHost,
+      if (primaryPort != null) 'primary_port': primaryPort,
     });
   }
 
   DeviceIdentityCompanion copyWith(
-      {Value<int>? id, Value<String>? deviceId, Value<int>? counter}) {
+      {Value<int>? id,
+      Value<String>? deviceId,
+      Value<int>? counter,
+      Value<String>? role,
+      Value<String>? primaryHost,
+      Value<int>? primaryPort}) {
     return DeviceIdentityCompanion(
       id: id ?? this.id,
       deviceId: deviceId ?? this.deviceId,
       counter: counter ?? this.counter,
+      role: role ?? this.role,
+      primaryHost: primaryHost ?? this.primaryHost,
+      primaryPort: primaryPort ?? this.primaryPort,
     );
   }
 
@@ -1821,6 +1949,15 @@ class DeviceIdentityCompanion extends UpdateCompanion<DeviceRow> {
     if (counter.present) {
       map['counter'] = Variable<int>(counter.value);
     }
+    if (role.present) {
+      map['role'] = Variable<String>(role.value);
+    }
+    if (primaryHost.present) {
+      map['primary_host'] = Variable<String>(primaryHost.value);
+    }
+    if (primaryPort.present) {
+      map['primary_port'] = Variable<int>(primaryPort.value);
+    }
     return map;
   }
 
@@ -1829,7 +1966,10 @@ class DeviceIdentityCompanion extends UpdateCompanion<DeviceRow> {
     return (StringBuffer('DeviceIdentityCompanion(')
           ..write('id: $id, ')
           ..write('deviceId: $deviceId, ')
-          ..write('counter: $counter')
+          ..write('counter: $counter, ')
+          ..write('role: $role, ')
+          ..write('primaryHost: $primaryHost, ')
+          ..write('primaryPort: $primaryPort')
           ..write(')'))
         .toString();
   }
@@ -2860,12 +3000,18 @@ typedef $$DeviceIdentityTableCreateCompanionBuilder = DeviceIdentityCompanion
   Value<int> id,
   required String deviceId,
   Value<int> counter,
+  Value<String> role,
+  Value<String> primaryHost,
+  Value<int> primaryPort,
 });
 typedef $$DeviceIdentityTableUpdateCompanionBuilder = DeviceIdentityCompanion
     Function({
   Value<int> id,
   Value<String> deviceId,
   Value<int> counter,
+  Value<String> role,
+  Value<String> primaryHost,
+  Value<int> primaryPort,
 });
 
 class $$DeviceIdentityTableFilterComposer
@@ -2885,6 +3031,15 @@ class $$DeviceIdentityTableFilterComposer
 
   ColumnFilters<int> get counter => $composableBuilder(
       column: $table.counter, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get role => $composableBuilder(
+      column: $table.role, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get primaryHost => $composableBuilder(
+      column: $table.primaryHost, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get primaryPort => $composableBuilder(
+      column: $table.primaryPort, builder: (column) => ColumnFilters(column));
 }
 
 class $$DeviceIdentityTableOrderingComposer
@@ -2904,6 +3059,15 @@ class $$DeviceIdentityTableOrderingComposer
 
   ColumnOrderings<int> get counter => $composableBuilder(
       column: $table.counter, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get role => $composableBuilder(
+      column: $table.role, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get primaryHost => $composableBuilder(
+      column: $table.primaryHost, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get primaryPort => $composableBuilder(
+      column: $table.primaryPort, builder: (column) => ColumnOrderings(column));
 }
 
 class $$DeviceIdentityTableAnnotationComposer
@@ -2923,6 +3087,15 @@ class $$DeviceIdentityTableAnnotationComposer
 
   GeneratedColumn<int> get counter =>
       $composableBuilder(column: $table.counter, builder: (column) => column);
+
+  GeneratedColumn<String> get role =>
+      $composableBuilder(column: $table.role, builder: (column) => column);
+
+  GeneratedColumn<String> get primaryHost => $composableBuilder(
+      column: $table.primaryHost, builder: (column) => column);
+
+  GeneratedColumn<int> get primaryPort => $composableBuilder(
+      column: $table.primaryPort, builder: (column) => column);
 }
 
 class $$DeviceIdentityTableTableManager extends RootTableManager<
@@ -2952,21 +3125,33 @@ class $$DeviceIdentityTableTableManager extends RootTableManager<
             Value<int> id = const Value.absent(),
             Value<String> deviceId = const Value.absent(),
             Value<int> counter = const Value.absent(),
+            Value<String> role = const Value.absent(),
+            Value<String> primaryHost = const Value.absent(),
+            Value<int> primaryPort = const Value.absent(),
           }) =>
               DeviceIdentityCompanion(
             id: id,
             deviceId: deviceId,
             counter: counter,
+            role: role,
+            primaryHost: primaryHost,
+            primaryPort: primaryPort,
           ),
           createCompanionCallback: ({
             Value<int> id = const Value.absent(),
             required String deviceId,
             Value<int> counter = const Value.absent(),
+            Value<String> role = const Value.absent(),
+            Value<String> primaryHost = const Value.absent(),
+            Value<int> primaryPort = const Value.absent(),
           }) =>
               DeviceIdentityCompanion.insert(
             id: id,
             deviceId: deviceId,
             counter: counter,
+            role: role,
+            primaryHost: primaryHost,
+            primaryPort: primaryPort,
           ),
           withReferenceMapper: (p0) => p0
               .map((e) => (

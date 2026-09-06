@@ -16,7 +16,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase(super.executor);
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -48,6 +48,26 @@ class AppDatabase extends _$AppDatabase {
               "UPDATE order_lines SET line_id = order_id || ':' || position "
               "WHERE line_id = ''",
             );
+          }
+
+          /// Versione 3: la rete locale.
+          ///
+          /// Tre colonne sulla cassetta che tiene già l'identità del
+          /// dispositivo. Non c'è niente da ricostruire: i valori predefiniti
+          /// descrivono esattamente ciò che ogni installazione esistente è
+          /// oggi — un dispositivo che non fa parte di nessuna rete locale.
+          ///
+          /// **`from >= 2` non è una svista.** `createTable` qui sopra usa la
+          /// definizione *di oggi*, non quella che la tabella aveva alla
+          /// versione 2: chi arriva dalla versione 1 riceve `device_identity`
+          /// con le tre colonne già dentro, e aggiungerle di nuovo fallisce
+          /// con «duplicate column name». Il salto v1 → v3 e il salto v2 → v3
+          /// passano quindi da strade diverse, ed è la ragione per cui il test
+          /// di migrazione li prova entrambi invece di fidarsi del più comune.
+          if (from >= 2 && from < 3) {
+            await m.addColumn(deviceIdentity, deviceIdentity.role);
+            await m.addColumn(deviceIdentity, deviceIdentity.primaryHost);
+            await m.addColumn(deviceIdentity, deviceIdentity.primaryPort);
           }
         },
         beforeOpen: (OpeningDetails details) async {

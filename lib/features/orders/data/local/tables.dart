@@ -144,6 +144,29 @@ class DeviceIdentity extends Table {
   TextColumn get deviceId => text().named('device_id')();
   IntColumn get counter => integer().withDefault(const Constant<int>(0))();
 
+  /// Che parte fa questo dispositivo in rete locale.
+  ///
+  /// Sta qui e non in una tabella sua per la stessa ragione del contatore: è
+  /// una cassetta a riga singola, e una tabella in più per tre colonne
+  /// sarebbe cerimonia. Il valore predefinito non è una comodità — un'app
+  /// appena installata deve funzionare senza che nessuno abbia configurato
+  /// niente.
+  TextColumn get role =>
+      text().withDefault(const Constant<String>('standalone'))();
+
+  /// Indirizzo del primario, significativo solo per un follower.
+  TextColumn get primaryHost =>
+      text().named('primary_host').withDefault(const Constant<String>(''))();
+
+  /// Deve valere quanto `lanPort` in `lan/lan_protocol.dart`.
+  ///
+  /// Scritto a mano invece di importare la costante perché drift **ricopia
+  /// questa espressione nel codice generato**, che non ha quell'import e non
+  /// compilerebbe. I due valori sono tenuti allineati da un test, che è il
+  /// solo modo per accorgersene se uno dei due cambia.
+  IntColumn get primaryPort =>
+      integer().named('primary_port').withDefault(const Constant<int>(53170))();
+
   @override
   Set<Column<Object>> get primaryKey => <Column<Object>>{id};
 }

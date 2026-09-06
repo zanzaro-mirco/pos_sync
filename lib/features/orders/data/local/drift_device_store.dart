@@ -44,6 +44,12 @@ class DriftDeviceStore implements LogicalClockStore {
           id: _singleRowId,
           deviceId: _ids.next(),
           counter: 0,
+          // Il ruolo in rete locale vive nella stessa riga ma non è affare di
+          // questa classe: qui si scrivono i valori predefiniti e basta, e a
+          // cambiarli ci pensa `DriftPeerSettings`.
+          role: 'standalone',
+          primaryHost: '',
+          primaryPort: 53170,
         );
         await _db.into(_db.deviceIdentity).insert(created);
         return created;
