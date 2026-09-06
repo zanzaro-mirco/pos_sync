@@ -10,11 +10,11 @@ import 'di.dart';
 ///
 /// Deve restare stabile: è la chiave con cui WorkManager riconosce un lavoro
 /// già pianificato invece di accumularne uno nuovo a ogni avvio.
-const String drenaggioPeriodico = 'pos-sync-drenaggio-coda';
+const String periodicDrainTask = 'pos-sync-drenaggio-coda';
 
 /// Intervallo minimo concesso da Android ai lavori periodici. Chiederne uno più
 /// corto non produce un errore: il sistema lo allunga in silenzio.
-const Duration _frequenzaMinimaAndroid = Duration(minutes: 15);
+const Duration _androidMinimumFrequency = Duration(minutes: 15);
 
 /// Pianifica il drenaggio della coda anche ad applicazione chiusa.
 ///
@@ -33,9 +33,9 @@ Future<void> scheduleBackgroundDrain() async {
 
   await Workmanager().initialize(backgroundEntryPoint);
   await Workmanager().registerPeriodicTask(
-    drenaggioPeriodico,
-    drenaggioPeriodico,
-    frequency: _frequenzaMinimaAndroid,
+    periodicDrainTask,
+    periodicDrainTask,
+    frequency: _androidMinimumFrequency,
     constraints: Constraints(networkType: NetworkType.connected),
     // `update` invece di `keep`: se domani cambia la frequenza, `keep`
     // lascerebbe girare per sempre quella registrata la prima volta.
@@ -53,37 +53,37 @@ Future<void> scheduleBackgroundDrain() async {
 @pragma('vm:entry-point')
 void backgroundEntryPoint() {
   Workmanager().executeTask((String task, Map<String, Object?>? inputData) {
-    return _drenaCoda();
+    return _drainQueue();
   });
 }
 
-Future<bool> _drenaCoda() async {
+Future<bool> _drainQueue() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Quando l'app è viva il lavoro può essere eseguito nel suo stesso processo,
   // dove il grafo esiste già: registrarlo di nuovo solleverebbe un'eccezione, e
   // chiudere il database sotto i piedi dell'interfaccia sarebbe peggio.
-  final bool grafoNostro = !sl.isRegistered<SyncWorker>();
-  if (grafoNostro) setUpDependencies();
+  final bool ownsGraph = !sl.isRegistered<SyncWorker>();
+  if (ownsGraph) setUpDependencies();
 
   try {
-    final SyncResult esito = await sl<SyncWorker>().drain();
+    final SyncResult outcome = await sl<SyncWorker>().drain();
     // Un ordine abbandonato in modo definitivo non è un fallimento del lavoro:
     // la decisione è già stata presa dalla politica di ritentativo, e dire
     // "riprova" ad Android farebbe ripetere un drenaggio che non ha più niente
     // da mandare.
-    debugPrint('[pos_sync] drenaggio in background: $esito');
+    debugPrint('[pos_sync] drenaggio in background: $outcome');
     return true;
-  } catch (errore) {
+  } catch (error) {
     // `false` chiede ad Android di riprovare secondo la propria politica di
     // backoff — quella di sistema, che tiene conto anche della batteria.
-    debugPrint('[pos_sync] drenaggio in background fallito: $errore');
+    debugPrint('[pos_sync] drenaggio in background fallito: $error');
     return false;
   } finally {
     // Il file va chiuso: il motore in background può sopravvivere al lavoro, e
     // una connessione aperta terrebbe il blocco su un database che l'app vuole
     // riaprire. Se il grafo non era nostro non è nostro nemmeno il database.
-    if (grafoNostro) {
+    if (ownsGraph) {
       await sl<AppDatabase>().close();
       await sl.reset();
     }

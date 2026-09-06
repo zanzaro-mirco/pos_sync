@@ -163,13 +163,25 @@ class OrderDto {
   }
 }
 
-/// Uno stato sconosciuto diventa `aperto` invece di far fallire il parsing.
+/// Uno stato sconosciuto diventa `open` invece di far fallire il parsing.
 ///
 /// Un backend più recente potrebbe introdurre uno stato che questa versione
 /// dell'app non conosce; scartare l'intero ordine per quello sarebbe una
-/// reazione sproporzionata, e `aperto` è la scelta prudente — un tavolo che
+/// reazione sproporzionata, e `open` è la scelta prudente — un tavolo che
 /// resta aperto per errore si nota, uno che risulta pagato per errore no.
-OrderState parseOrderState(String raw) => OrderState.values.firstWhere(
-      (OrderState s) => s.name == raw,
-      orElse: () => OrderState.aperto,
-    );
+/// **I nomi italiani si leggono ancora.** Le costanti dell'enumerazione si
+/// chiamavano `aperto`, `servito` e `pagato`, e finivano su SQLite così com'erano:
+/// un dispositivo aggiornato trova quei valori nella propria base dati. Un
+/// confronto sui soli nomi nuovi li avrebbe fatti scivolare tutti nel caso
+/// predefinito, cioè avrebbe riaperto in silenzio ogni tavolo servito o pagato —
+/// la peggiore delle perdite di dati, quella che non fa rumore.
+///
+/// Non serve una migrazione: la corrispondenza sta qui, si scrive sempre e solo
+/// il nome nuovo, e i valori vecchi si esauriscono da soli alla prima modifica
+/// di ciascun ordine.
+OrderState parseOrderState(String raw) => switch (raw) {
+      'open' || 'aperto' => OrderState.open,
+      'served' || 'servito' => OrderState.served,
+      'paid' || 'pagato' => OrderState.paid,
+      _ => OrderState.open,
+    };

@@ -100,9 +100,9 @@ class InboundMerger {
           .any((OrderConflict c) => c.orderId == orderId);
 
   Future<void> _closeConflictsOn(String orderId) async {
-    for (final OrderConflict aperto in await _conflicts.openConflicts()) {
-      if (aperto.orderId == orderId) {
-        await _conflicts.removeConflict(aperto.id);
+    for (final OrderConflict conflict in await _conflicts.openConflicts()) {
+      if (conflict.orderId == orderId) {
+        await _conflicts.removeConflict(conflict.id);
       }
     }
   }

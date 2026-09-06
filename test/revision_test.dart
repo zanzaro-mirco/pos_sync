@@ -22,15 +22,15 @@ void main() {
     });
 
     test('è un ordine totale: fra due revisioni qualsiasi una viene prima', () {
-      final List<Revision> tutte = <Revision>[
+      final List<Revision> all = <Revision>[
         for (int c = 0; c <= 4; c++)
           for (final String d in <String>['a', 'b', 'c']) rev(c, d),
       ];
 
-      for (final Revision x in tutte) {
-        for (final Revision y in tutte) {
-          final bool decidibile = x == y || x > y || x < y;
-          expect(decidibile, isTrue, reason: '$x e $y non sono confrontabili');
+      for (final Revision x in all) {
+        for (final Revision y in all) {
+          final bool comparable = x == y || x > y || x < y;
+          expect(comparable, isTrue, reason: '$x e $y non sono confrontabili');
           // Antisimmetria: se x batte y, y non può battere x.
           if (x > y) {
             expect(y > x, isFalse, reason: '$x e $y si battono a vicenda');
@@ -40,26 +40,26 @@ void main() {
     });
 
     test('la revisione iniziale precede qualunque modifica', () {
-      const Revision iniziale = Revision.initial();
-      expect(iniziale < rev(1, 'a'), isTrue);
-      expect(iniziale < rev(1, ''), isTrue);
+      const Revision initial = Revision.initial();
+      expect(initial < rev(1, 'a'), isTrue);
+      expect(initial < rev(1, ''), isTrue);
     });
 
     test('ordinare una lista dà lo stesso risultato da qualunque mescolata',
         () {
-      final List<Revision> ordinata = <Revision>[
+      final List<Revision> sorted = <Revision>[
         rev(1, 'a'),
         rev(1, 'b'),
         rev(2, 'a'),
         rev(9, 'a'),
       ];
-      final List<Revision> rimescolata = <Revision>[
+      final List<Revision> shuffled = <Revision>[
         rev(9, 'a'),
         rev(1, 'b'),
         rev(2, 'a'),
         rev(1, 'a'),
       ]..sort();
-      expect(rimescolata, ordinata);
+      expect(shuffled, sorted);
     });
   });
 
@@ -100,26 +100,26 @@ void main() {
       // Un contatore che riparte da zero riuserebbe revisioni già usate: due
       // modifiche diverse dello stesso dispositivo porterebbero la stessa
       // revisione e l'ordine totale smetterebbe di essere tale.
-      final InMemoryLogicalClockStore deposito =
+      final InMemoryLogicalClockStore store =
           InMemoryLogicalClockStore(deviceId: 'tablet-a');
 
-      final LamportClock prima = LamportClock(deposito);
-      await prima.tick();
-      await prima.tick();
-      await prima.tick();
+      final LamportClock before = LamportClock(store);
+      await before.tick();
+      await before.tick();
+      await before.tick();
 
-      final LamportClock dopoIlRiavvio = LamportClock(deposito);
-      expect(await dopoIlRiavvio.tick(), rev(4, 'tablet-a'));
+      final LamportClock afterRestart = LamportClock(store);
+      expect(await afterRestart.tick(), rev(4, 'tablet-a'));
     });
 
     test('il contatore è persistito prima di essere usato', () async {
-      final InMemoryLogicalClockStore deposito =
+      final InMemoryLogicalClockStore store =
           InMemoryLogicalClockStore(deviceId: 'tablet-a');
-      final LamportClock clock = LamportClock(deposito);
+      final LamportClock clock = LamportClock(store);
 
-      final Revision emessa = await clock.tick();
+      final Revision issued = await clock.tick();
 
-      expect(deposito.counter, emessa.counter,
+      expect(store.counter, issued.counter,
           reason: 'una revisione emessa e non salvata si può riusare');
     });
   });

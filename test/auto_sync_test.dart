@@ -15,12 +15,12 @@ void main() {
   group('AutoSync', () {
     late TestEnv env;
     late FakeConnectivityMonitor monitor;
-    late List<Duration> attese;
+    late List<Duration> waits;
 
     setUp(() {
       env = TestEnv();
       monitor = FakeConnectivityMonitor();
-      attese = <Duration>[];
+      waits = <Duration>[];
     });
 
     tearDown(() async {
@@ -32,7 +32,7 @@ void main() {
     ///
     /// L'attesa viene registrata invece che subita: è ciò che permette di
     /// asserire sul jitter senza che la suite duri secondi.
-    AutoSync creaAutoSync({
+    AutoSync makeAutoSync({
       SyncWorker? worker,
       Duration maxDelay = const Duration(seconds: 5),
       Random? random,
@@ -47,7 +47,7 @@ void main() {
         logger: logger ?? const SilentLogger(),
         sleeper: sleeper ??
             (Duration d) async {
-              attese.add(d);
+              waits.add(d);
             },
       );
       addTearDown(auto.stop);
@@ -58,18 +58,18 @@ void main() {
     ///
     /// Il drenaggio parte da un evento e nessuno restituisce un future da
     /// attendere: è esattamente il punto della funzionalità.
-    Future<void> attendiChe(
-      Future<bool> Function() condizione,
-      String descrizione,
+    Future<void> waitUntil(
+      Future<bool> Function() condition,
+      String description,
     ) async {
       for (int i = 0; i < 100; i++) {
-        if (await condizione()) return;
+        if (await condition()) return;
         await Future<void>.delayed(Duration.zero);
       }
-      fail('Mai avvenuto: $descrizione');
+      fail('Mai avvenuto: $description');
     }
 
-    Future<void> pompa() async {
+    Future<void> pump() async {
       for (int i = 0; i < 10; i++) {
         await Future<void>.delayed(Duration.zero);
       }
@@ -80,7 +80,7 @@ void main() {
     // -------------------------------------------------------------------
     test('il monitor passa a online e la coda si svuota da sola', () async {
       env.api.online = false;
-      creaAutoSync().start();
+      makeAutoSync().start();
 
       await env.repository.createOrder(tableNumber: 7, lines: sampleLines);
       expect(await env.store.pendingCount(), 1,
@@ -90,12 +90,12 @@ void main() {
       env.api.online = true;
       monitor.emit(true);
 
-      await attendiChe(
+      await waitUntil(
         () async => await env.store.pendingCount() == 0,
         'la coda non si è svuotata da sola',
       );
       expect(env.api.storedOrderIds, <String>{'id-1'});
-      expect(attese, hasLength(1), reason: 'un solo drenaggio');
+      expect(waits, hasLength(1), reason: 'un solo drenaggio');
     });
 
     test('lo stato iniziale online conta come transizione', () async {
@@ -107,80 +107,80 @@ void main() {
       // ferma per sempre.
       env.api.online = true;
       monitor.emit(true);
-      creaAutoSync().start();
+      makeAutoSync().start();
 
-      await attendiChe(
+      await waitUntil(
         () async => await env.store.pendingCount() == 0,
         'la coda non è stata drenata allo start',
       );
     });
 
     test('lo stato iniziale offline non drena', () async {
-      creaAutoSync().start();
-      await pompa();
-      expect(attese, isEmpty);
+      makeAutoSync().start();
+      await pump();
+      expect(waits, isEmpty);
     });
 
     test('un secondo evento online non fa ripartire la coda', () async {
-      creaAutoSync().start();
+      makeAutoSync().start();
       monitor.emit(true);
-      await pompa();
+      await pump();
 
       // Wi-Fi che diventa dati mobili: cambia la rete, non lo stato.
       monitor.emit(true);
-      await pompa();
+      await pump();
 
-      expect(attese, hasLength(1));
+      expect(waits, hasLength(1));
     });
 
     test('il passaggio a offline non drena', () async {
-      creaAutoSync().start();
+      makeAutoSync().start();
       monitor
         ..emit(true)
         ..emit(false);
-      await pompa();
-      expect(attese, hasLength(1), reason: 'solo quello di andata');
+      await pump();
+      expect(waits, hasLength(1), reason: 'solo quello di andata');
     });
 
     test('dopo stop() le transizioni vengono ignorate', () async {
-      final AutoSync auto = creaAutoSync();
+      final AutoSync auto = makeAutoSync();
       auto.start();
       await auto.stop();
 
       monitor.emit(true);
-      await pompa();
-      expect(attese, isEmpty);
+      await pump();
+      expect(waits, isEmpty);
     });
 
     test('start() è idempotente', () async {
-      creaAutoSync()
+      makeAutoSync()
         ..start()
         ..start();
 
       monitor.emit(true);
-      await pompa();
-      expect(attese, hasLength(1), reason: 'una sola sottoscrizione');
+      await pump();
+      expect(waits, hasLength(1), reason: 'una sola sottoscrizione');
     });
 
     test('il ritardo resta dentro il massimo e non è sempre lo stesso',
         () async {
-      const Duration massimo = Duration(seconds: 4);
-      creaAutoSync(maxDelay: massimo).start();
+      const Duration maximum = Duration(seconds: 4);
+      makeAutoSync(maxDelay: maximum).start();
 
       for (int i = 0; i < 20; i++) {
         monitor
           ..emit(true)
           ..emit(false);
-        await pompa();
+        await pump();
       }
 
-      expect(attese, hasLength(20));
+      expect(waits, hasLength(20));
       expect(
-        attese.every((Duration d) => d >= Duration.zero && d <= massimo),
+        waits.every((Duration d) => d >= Duration.zero && d <= maximum),
         isTrue,
-        reason: 'jitter fuori dai limiti: $attese',
+        reason: 'jitter fuori dai limiti: $waits',
       );
-      expect(attese.toSet().length, greaterThan(1),
+      expect(waits.toSet().length, greaterThan(1),
           reason: 'un ritardo costante non distribuirebbe niente');
     });
 
@@ -188,7 +188,7 @@ void main() {
       env.api.online = false;
       await env.repository.createOrder(tableNumber: 1, lines: sampleLines);
 
-      creaAutoSync(
+      makeAutoSync(
         sleeper: (Duration d) async {
           monitor.emit(false);
           await Future<void>.delayed(Duration.zero);
@@ -197,7 +197,7 @@ void main() {
 
       env.api.online = true;
       monitor.emit(true);
-      await pompa();
+      await pump();
 
       expect(env.api.received, isEmpty);
       expect(await env.store.pendingCount(), 1);
@@ -205,17 +205,17 @@ void main() {
 
     test('un drenaggio che esplode viene registrato e non sfugge', () async {
       final InMemoryLogger logger = InMemoryLogger();
-      creaAutoSync(
+      makeAutoSync(
         worker: SyncWorker(
-          orderStore: _DepositoRotto(),
-          outboxStore: _DepositoRotto(),
+          orderStore: _BrokenStore(),
+          outboxStore: _BrokenStore(),
           api: env.api,
         ),
         logger: logger,
       ).start();
 
       monitor.emit(true);
-      await attendiChe(
+      await waitUntil(
         () async => logger.messages.isNotEmpty,
         'niente è finito nel log',
       );
@@ -225,7 +225,7 @@ void main() {
 }
 
 /// Deposito che fallisce alla prima lettura della coda.
-class _DepositoRotto implements OrderStore, OutboxStore {
+class _BrokenStore implements OrderStore, OutboxStore {
   @override
   Future<List<OutboxEntry>> pendingOutbox() =>
       Future<List<OutboxEntry>>.error(StateError('file illeggibile'));

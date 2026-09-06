@@ -17,14 +17,14 @@ import 'package:pos_sync/features/orders/domain/revision.dart';
 
 import 'helpers/fixtures.dart';
 
-const OrderLineDraft caffe = OrderLineDraft(
+const OrderLineDraft coffee = OrderLineDraft(
   productId: 'p-01',
   description: 'Caffè',
   quantity: 2,
   unitPriceCents: 120,
 );
 
-const OrderLineDraft cornetto = OrderLineDraft(
+const OrderLineDraft croissant = OrderLineDraft(
   productId: 'p-02',
   description: 'Cornetto',
   quantity: 1,
@@ -42,12 +42,12 @@ const OrderLineDraft cornetto = OrderLineDraft(
 /// campi con `==`, e per una `List` `==` è l'identità: due liste con lo stesso
 /// contenuto risulterebbero diverse e il test fallirebbe mostrando due valori
 /// identici.
-typedef StatoCondiviso = ({
-  int tavolo,
-  OrderState stato,
-  Revision revisione,
-  String righe,
-  int totale,
+typedef SharedState = ({
+  int table,
+  OrderState state,
+  Revision revision,
+  String lines,
+  int total,
 });
 
 /// Ciò che vedrebbe una persona guardando il tablet.
@@ -58,55 +58,55 @@ typedef StatoCondiviso = ({
 /// stesso tavolo con numeri diversi da uno che fa il contrario. Preterderli
 /// uguali significherebbe pretendere che due storie diverse siano la stessa
 /// storia, non che portino allo stesso risultato.
-typedef StatoVisibile = ({
-  int tavolo,
-  OrderState stato,
-  String piatti,
-  int totale,
+typedef VisibleState = ({
+  int table,
+  OrderState state,
+  String dishes,
+  int total,
 });
 
-StatoVisibile visibile(Order o) => (
-      tavolo: o.tableNumber,
-      stato: o.state,
-      piatti: (o.lines
+VisibleState visible(Order o) => (
+      table: o.tableNumber,
+      state: o.state,
+      dishes: (o.lines
               .map((OrderLine l) => '${l.description} x${l.quantity}')
               .toList()
             ..sort())
           .join(', '),
-      totale: o.totalCents,
+      total: o.totalCents,
     );
 
-StatoCondiviso condiviso(Order o) => (
-      tavolo: o.tableNumber,
-      stato: o.state,
-      revisione: o.stateRevision,
-      righe:
+SharedState shared(Order o) => (
+      table: o.tableNumber,
+      state: o.state,
+      revision: o.stateRevision,
+      lines:
           o.lines.map((OrderLine l) => '${l.id}:${l.description}').join(', '),
-      totale: o.totalCents,
+      total: o.totalCents,
     );
 
 /// Due tablet nello stesso locale, con un ordine già condiviso fra i due.
-class Sala {
-  Sala._(this.a, this.b, this.ordineId);
+class Room {
+  Room._(this.a, this.b, this.orderId);
 
-  static Future<Sala> aperta() async {
+  static Future<Room> open() async {
     final FakeServer server = FakeServer();
     final TestEnv a =
         TestEnv(server: server, deviceId: 'tablet-a', idPrefix: 'a');
     final TestEnv b =
         TestEnv(server: server, deviceId: 'tablet-b', idPrefix: 'b');
 
-    final Order ordine = await a.repository
-        .createOrder(tableNumber: 7, lines: <OrderLineDraft>[caffe]);
+    final Order order = await a.repository
+        .createOrder(tableNumber: 7, lines: <OrderLineDraft>[coffee]);
     await a.worker.drain();
     await b.worker.drain(); // b lo riceve dal server
 
-    return Sala._(a, b, ordine.id);
+    return Room._(a, b, order.id);
   }
 
   final TestEnv a;
   final TestEnv b;
-  final String ordineId;
+  final String orderId;
 
   /// Fa girare la sincronizzazione finché non cambia più niente.
   ///
@@ -114,8 +114,8 @@ class Sala {
   /// sincronizzano a ogni ritorno della rete e ogni quarto d'ora. Il numero di
   /// giri è un limite superiore — se servissero più di così, il sistema non
   /// convergerebbe e il test lo direbbe.
-  Future<void> stabilizza({int giri = 3}) async {
-    for (int i = 0; i < giri; i++) {
+  Future<void> settle({int rounds = 3}) async {
+    for (int i = 0; i < rounds; i++) {
       // L'orologio avanza fra un giro e l'altro: una voce che ha già fallito
       // porta un `nextAttemptAt` nel futuro, e con un orologio fermo resterebbe
       // in coda per sempre. Non è un dettaglio del test — è il backoff che
@@ -128,10 +128,10 @@ class Sala {
     }
   }
 
-  Future<Order> ordineDi(TestEnv env) async =>
-      (await env.store.orderById(ordineId))!;
+  Future<Order> orderOf(TestEnv env) async =>
+      (await env.store.orderById(orderId))!;
 
-  Future<void> chiudi() async {
+  Future<void> close() async {
     await a.dispose();
     await b.dispose();
   }
@@ -141,60 +141,60 @@ void main() {
   group('Il criterio', () {
     test('due dispositivi, ordine invertito, stesso stato finale', () async {
       // Andata: prima aggiunge A, poi serve B.
-      final Sala andata = await Sala.aperta();
-      await andata.a.repository.addLines(
-          orderId: andata.ordineId, lines: <OrderLineDraft>[cornetto]);
-      await andata.a.worker.drain();
-      await andata.b.repository
-          .changeState(orderId: andata.ordineId, state: OrderState.servito);
-      await andata.b.worker.drain();
-      await andata.stabilizza();
+      final Room forward = await Room.open();
+      await forward.a.repository.addLines(
+          orderId: forward.orderId, lines: <OrderLineDraft>[croissant]);
+      await forward.a.worker.drain();
+      await forward.b.repository
+          .changeState(orderId: forward.orderId, state: OrderState.served);
+      await forward.b.worker.drain();
+      await forward.settle();
 
       // Ritorno: le stesse due modifiche, nell'ordine opposto.
-      final Sala ritorno = await Sala.aperta();
-      await ritorno.b.repository
-          .changeState(orderId: ritorno.ordineId, state: OrderState.servito);
-      await ritorno.b.worker.drain();
-      await ritorno.a.repository.addLines(
-          orderId: ritorno.ordineId, lines: <OrderLineDraft>[cornetto]);
-      await ritorno.a.worker.drain();
-      await ritorno.stabilizza();
+      final Room reversed = await Room.open();
+      await reversed.b.repository
+          .changeState(orderId: reversed.orderId, state: OrderState.served);
+      await reversed.b.worker.drain();
+      await reversed.a.repository.addLines(
+          orderId: reversed.orderId, lines: <OrderLineDraft>[croissant]);
+      await reversed.a.worker.drain();
+      await reversed.settle();
 
       // I due dispositivi della stessa sala sono d'accordo fra loro...
       expect(
-        condiviso(await andata.ordineDi(andata.a)),
-        condiviso(await andata.ordineDi(andata.b)),
+        shared(await forward.orderOf(forward.a)),
+        shared(await forward.orderOf(forward.b)),
         reason: 'i due tablet della prima sala non convergono',
       );
       expect(
-        condiviso(await ritorno.ordineDi(ritorno.a)),
-        condiviso(await ritorno.ordineDi(ritorno.b)),
+        shared(await reversed.orderOf(reversed.a)),
+        shared(await reversed.orderOf(reversed.b)),
         reason: 'i due tablet della seconda sala non convergono',
       );
 
       // ...e le due sale sono arrivate allo stesso posto, pur avendo visto le
       // stesse modifiche in ordine opposto.
       expect(
-        condiviso(await andata.ordineDi(andata.a)),
-        condiviso(await ritorno.ordineDi(ritorno.a)),
+        shared(await forward.orderOf(forward.a)),
+        shared(await reversed.orderOf(reversed.a)),
         reason: "l'ordine delle modifiche ha cambiato il risultato",
       );
 
-      final Order finale = await andata.ordineDi(andata.a);
-      expect(finale.state, OrderState.servito);
-      expect(finale.lines.length, 2, reason: 'nessuna riga si perde');
-      expect(finale.totalCents, 240 + 150);
+      final Order finalOrder = await forward.orderOf(forward.a);
+      expect(finalOrder.state, OrderState.served);
+      expect(finalOrder.lines.length, 2, reason: 'nessuna riga si perde');
+      expect(finalOrder.totalCents, 240 + 150);
 
-      await andata.chiudi();
-      await ritorno.chiudi();
+      await forward.close();
+      await reversed.close();
     });
 
     test('tre modifiche, tutte e sei le sequenze, un solo risultato', () async {
       // La convergenza è una proprietà, non un caso fortunato: qui si prova su
       // ogni ordine possibile invece che su quello che è venuto in mente.
-      final List<StatoVisibile> esiti = <StatoVisibile>[];
+      final List<VisibleState> outcomes = <VisibleState>[];
 
-      for (final List<int> sequenza in <List<int>>[
+      for (final List<int> sequence in <List<int>>[
         <int>[0, 1, 2],
         <int>[0, 2, 1],
         <int>[1, 0, 2],
@@ -202,40 +202,40 @@ void main() {
         <int>[2, 0, 1],
         <int>[2, 1, 0],
       ]) {
-        final Sala sala = await Sala.aperta();
+        final Room room = await Room.open();
 
-        for (final int mossa in sequenza) {
-          switch (mossa) {
+        for (final int move in sequence) {
+          switch (move) {
             case 0:
-              await sala.a.repository.addLines(
-                  orderId: sala.ordineId, lines: <OrderLineDraft>[cornetto]);
-              await sala.a.worker.drain();
+              await room.a.repository.addLines(
+                  orderId: room.orderId, lines: <OrderLineDraft>[croissant]);
+              await room.a.worker.drain();
             case 1:
-              await sala.b.repository.addLines(
-                  orderId: sala.ordineId, lines: <OrderLineDraft>[caffe]);
-              await sala.b.worker.drain();
+              await room.b.repository.addLines(
+                  orderId: room.orderId, lines: <OrderLineDraft>[coffee]);
+              await room.b.worker.drain();
             case 2:
-              await sala.b.repository.changeState(
-                  orderId: sala.ordineId, state: OrderState.servito);
-              await sala.b.worker.drain();
+              await room.b.repository
+                  .changeState(orderId: room.orderId, state: OrderState.served);
+              await room.b.worker.drain();
           }
         }
-        await sala.stabilizza();
+        await room.settle();
 
         expect(
-          condiviso(await sala.ordineDi(sala.a)),
-          condiviso(await sala.ordineDi(sala.b)),
-          reason: 'sequenza $sequenza: i due dispositivi non convergono',
+          shared(await room.orderOf(room.a)),
+          shared(await room.orderOf(room.b)),
+          reason: 'sequenza $sequence: i due dispositivi non convergono',
         );
-        esiti.add(visibile(await sala.ordineDi(sala.a)));
-        await sala.chiudi();
+        outcomes.add(visible(await room.orderOf(room.a)));
+        await room.close();
       }
 
-      for (final StatoVisibile esito in esiti) {
-        expect(esito, esiti.first,
+      for (final VisibleState outcome in outcomes) {
+        expect(outcome, outcomes.first,
             reason: 'sequenze diverse hanno prodotto tavoli diversi');
       }
-      expect(esiti.first.piatti.split(', '), hasLength(3));
+      expect(outcomes.first.dishes.split(', '), hasLength(3));
     });
   });
 
@@ -249,146 +249,144 @@ void main() {
       // fatto niente. Quando B vede il tavolo servito e decide di incassare,
       // la sua decisione è la più recente e deve vincere — anche se il suo
       // contatore, contato per conto proprio, sarebbe più basso di quello di A.
-      final Sala sala = await Sala.aperta();
+      final Room room = await Room.open();
 
       for (int i = 0; i < 4; i++) {
-        await sala.a.repository.addLines(
-            orderId: sala.ordineId, lines: <OrderLineDraft>[cornetto]);
+        await room.a.repository.addLines(
+            orderId: room.orderId, lines: <OrderLineDraft>[croissant]);
       }
-      await sala.a.repository
-          .changeState(orderId: sala.ordineId, state: OrderState.servito);
-      await sala.a.worker.drain();
+      await room.a.repository
+          .changeState(orderId: room.orderId, state: OrderState.served);
+      await room.a.worker.drain();
 
-      await sala.b.worker.drain(); // qui B prende atto del tempo di A
-      await sala.b.repository
-          .changeState(orderId: sala.ordineId, state: OrderState.pagato);
-      await sala.b.worker.drain();
-      await sala.stabilizza();
+      await room.b.worker.drain(); // qui B prende atto del tempo di A
+      await room.b.repository
+          .changeState(orderId: room.orderId, state: OrderState.paid);
+      await room.b.worker.drain();
+      await room.settle();
 
-      expect((await sala.ordineDi(sala.b)).state, OrderState.pagato);
+      expect((await room.orderOf(room.b)).state, OrderState.paid);
       expect(
-        (await sala.ordineDi(sala.a)).state,
-        OrderState.pagato,
+        (await room.orderOf(room.a)).state,
+        OrderState.paid,
         reason: "l'ultima decisione presa è stata scartata: senza `witness` il "
             'contatore di B nasce più basso di quello di A e perde',
       );
 
-      await sala.chiudi();
+      await room.close();
     });
   });
 
   group('Quando invece serve una persona', () {
     test('pagare mentre l altro aggiunge apre un conflitto su entrambi',
         () async {
-      final Sala sala = await Sala.aperta();
+      final Room room = await Room.open();
 
       // La cassa incassa senza sapere che in sala stanno ancora ordinando.
-      await sala.a.repository
-          .changeState(orderId: sala.ordineId, state: OrderState.pagato);
-      await sala.b.repository
-          .addLines(orderId: sala.ordineId, lines: <OrderLineDraft>[cornetto]);
+      await room.a.repository
+          .changeState(orderId: room.orderId, state: OrderState.paid);
+      await room.b.repository
+          .addLines(orderId: room.orderId, lines: <OrderLineDraft>[croissant]);
 
-      await sala.a.worker.drain();
-      await sala.b.worker.drain();
-      await sala.a.worker.drain();
+      await room.a.worker.drain();
+      await room.b.worker.drain();
+      await room.a.worker.drain();
 
-      final List<OrderConflict> suA = await sala.a.store.openConflicts();
-      final List<OrderConflict> suB = await sala.b.store.openConflicts();
+      final List<OrderConflict> onA = await room.a.store.openConflicts();
+      final List<OrderConflict> onB = await room.b.store.openConflicts();
 
-      expect(suA, hasLength(1),
+      expect(onA, hasLength(1),
           reason: 'la cassa deve sapere di quel cornetto');
-      expect(suB, hasLength(1), reason: 'anche la sala deve saperlo');
-      expect(suA.single.reason, contains('pagato'));
-      expect(suA.single.reason, contains('1 articolo'));
+      expect(onB, hasLength(1), reason: 'anche la sala deve saperlo');
+      expect(onA.single.reason, contains('pagato'));
+      expect(onA.single.reason, contains('1 articolo'));
 
-      await sala.chiudi();
+      await room.close();
     });
 
     test('la decisione di uno chiude il conflitto anche sull altro', () async {
-      final Sala sala = await Sala.aperta();
-      await sala.a.repository
-          .changeState(orderId: sala.ordineId, state: OrderState.pagato);
-      await sala.b.repository
-          .addLines(orderId: sala.ordineId, lines: <OrderLineDraft>[cornetto]);
-      await sala.a.worker.drain();
-      await sala.b.worker.drain();
-      await sala.a.worker.drain();
+      final Room room = await Room.open();
+      await room.a.repository
+          .changeState(orderId: room.orderId, state: OrderState.paid);
+      await room.b.repository
+          .addLines(orderId: room.orderId, lines: <OrderLineDraft>[croissant]);
+      await room.a.worker.drain();
+      await room.b.worker.drain();
+      await room.a.worker.drain();
 
       // In sala si decide: il tavolo si riapre, il cornetto va incassato.
       // `mine` è la versione di *questo* dispositivo, cioè quella della sala,
       // dove il tavolo è ancora aperto.
-      final OrderConflict conflitto =
-          (await sala.b.store.openConflicts()).single;
-      await sala.b.repository
-          .resolveConflict(conflitto.id, ConflictChoice.mine);
-      await sala.stabilizza();
+      final OrderConflict conflict =
+          (await room.b.store.openConflicts()).single;
+      await room.b.repository.resolveConflict(conflict.id, ConflictChoice.mine);
+      await room.settle();
 
-      expect(await sala.b.store.openConflicts(), isEmpty);
-      expect(await sala.a.store.openConflicts(), isEmpty,
+      expect(await room.b.store.openConflicts(), isEmpty);
+      expect(await room.a.store.openConflicts(), isEmpty,
           reason: 'nessuno deve decidere due volte la stessa cosa');
 
-      final Order suA = await sala.ordineDi(sala.a);
-      expect(condiviso(suA), condiviso(await sala.ordineDi(sala.b)));
-      expect(suA.state, OrderState.aperto);
-      expect(suA.lines.length, 2,
+      final Order onA = await room.orderOf(room.a);
+      expect(shared(onA), shared(await room.orderOf(room.b)));
+      expect(onA.state, OrderState.open);
+      expect(onA.lines.length, 2,
           reason: 'il cornetto resta, comunque si scelga');
 
-      await sala.chiudi();
+      await room.close();
     });
 
     test('tenere il pagamento non fa sparire le righe arrivate dopo', () async {
       // È la ragione per cui è sicuro chiedere: nessuna delle due risposte
       // cancella una comanda.
-      final Sala sala = await Sala.aperta();
-      await sala.a.repository
-          .changeState(orderId: sala.ordineId, state: OrderState.pagato);
-      await sala.b.repository
-          .addLines(orderId: sala.ordineId, lines: <OrderLineDraft>[cornetto]);
-      await sala.a.worker.drain();
-      await sala.b.worker.drain();
-      await sala.a.worker.drain();
+      final Room room = await Room.open();
+      await room.a.repository
+          .changeState(orderId: room.orderId, state: OrderState.paid);
+      await room.b.repository
+          .addLines(orderId: room.orderId, lines: <OrderLineDraft>[croissant]);
+      await room.a.worker.drain();
+      await room.b.worker.drain();
+      await room.a.worker.drain();
 
-      final OrderConflict conflitto =
-          (await sala.a.store.openConflicts()).single;
-      await sala.a.repository
-          .resolveConflict(conflitto.id, ConflictChoice.mine);
-      await sala.stabilizza();
+      final OrderConflict conflict =
+          (await room.a.store.openConflicts()).single;
+      await room.a.repository.resolveConflict(conflict.id, ConflictChoice.mine);
+      await room.settle();
 
-      final Order suA = await sala.ordineDi(sala.a);
-      expect(suA.state, OrderState.pagato);
-      expect(suA.lines.length, 2);
-      expect(condiviso(suA), condiviso(await sala.ordineDi(sala.b)));
+      final Order onA = await room.orderOf(room.a);
+      expect(onA.state, OrderState.paid);
+      expect(onA.lines.length, 2);
+      expect(shared(onA), shared(await room.orderOf(room.b)));
 
-      await sala.chiudi();
+      await room.close();
     });
   });
 
   group('Offline', () {
     test('un dispositivo scollegato non blocca l altro, e rientra dopo',
         () async {
-      final Sala sala = await Sala.aperta();
-      sala.b.api.online = false;
+      final Room room = await Room.open();
+      room.b.api.online = false;
 
-      await sala.a.repository
-          .addLines(orderId: sala.ordineId, lines: <OrderLineDraft>[cornetto]);
-      await sala.a.worker.drain();
-      await sala.b.repository
-          .changeState(orderId: sala.ordineId, state: OrderState.servito);
-      await sala.b.worker.drain(); // non esce niente
+      await room.a.repository
+          .addLines(orderId: room.orderId, lines: <OrderLineDraft>[croissant]);
+      await room.a.worker.drain();
+      await room.b.repository
+          .changeState(orderId: room.orderId, state: OrderState.served);
+      await room.b.worker.drain(); // non esce niente
 
-      expect((await sala.ordineDi(sala.b)).lines.length, 1,
+      expect((await room.orderOf(room.b)).lines.length, 1,
           reason: 'offline non si vede il cornetto');
 
-      sala.b.api.online = true;
-      await sala.stabilizza();
+      room.b.api.online = true;
+      await room.settle();
 
       expect(
-        condiviso(await sala.ordineDi(sala.a)),
-        condiviso(await sala.ordineDi(sala.b)),
+        shared(await room.orderOf(room.a)),
+        shared(await room.orderOf(room.b)),
       );
-      expect((await sala.ordineDi(sala.b)).lines.length, 2);
+      expect((await room.orderOf(room.b)).lines.length, 2);
 
-      await sala.chiudi();
+      await room.close();
     });
   });
 }

@@ -6,6 +6,7 @@ import '../domain/order_conflict.dart';
 import '../domain/order_state.dart';
 import 'conflict_card.dart';
 import 'order_tile.dart';
+import 'order_state_label.dart';
 import 'orders_cubit.dart';
 import 'orders_state.dart';
 
@@ -45,36 +46,36 @@ class OrdersPage extends StatelessWidget {
   /// conseguenza che va spiegata, e in un menu di scorciatoie non ci sarebbe
   /// spazio per dirlo. Come sui pulsanti della scheda di conflitto, ogni voce
   /// dice **cosa succede**, non quale campo cambia.
-  void _mostraAzioni(BuildContext context, Order order) {
+  void _showActions(BuildContext context, Order order) {
     final OrdersCubit cubit = context.read<OrdersCubit>();
-    final ScaffoldMessengerState messaggi = ScaffoldMessenger.of(context);
+    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
 
     showModalBottomSheet<void>(
       context: context,
-      builder: (BuildContext foglio) => SafeArea(
+      builder: (BuildContext sheet) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
             ListTile(
               title: Text(
                 'Tavolo ${order.tableNumber}',
-                style: Theme.of(foglio).textTheme.titleMedium,
+                style: Theme.of(sheet).textTheme.titleMedium,
               ),
-              subtitle:
-                  Text('${order.state.name} · ${order.itemCount} articoli'),
+              subtitle: Text('${orderStateLabel(order.state)} · '
+                  '${order.itemCount} articoli'),
             ),
             const Divider(height: 1),
             // Lo stato in cui il tavolo già si trova non compare: una voce che
             // non farebbe niente occupa spazio e va letta per scoprirlo.
-            for (final OrderState stato in OrderState.values)
-              if (stato != order.state)
+            for (final OrderState state in OrderState.values)
+              if (state != order.state)
                 ListTile(
-                  key: Key('action-${stato.name}'),
-                  leading: Icon(_icona(stato)),
-                  title: Text(_verbo(stato)),
+                  key: Key('action-${state.name}'),
+                  leading: Icon(_actionIcon(state)),
+                  title: Text(_actionLabel(state)),
                   onTap: () {
-                    Navigator.pop(foglio);
-                    cubit.changeState(orderId: order.id, state: stato);
+                    Navigator.pop(sheet);
+                    cubit.changeState(orderId: order.id, state: state);
                   },
                 ),
             ListTile(
@@ -82,7 +83,7 @@ class OrdersPage extends StatelessWidget {
               leading: const Icon(Icons.add_shopping_cart),
               title: const Text('Aggiungi una comanda'),
               onTap: () {
-                Navigator.pop(foglio);
+                Navigator.pop(sheet);
                 onAddLine(order);
               },
             ),
@@ -98,9 +99,9 @@ class OrdersPage extends StatelessWidget {
                 ),
                 isThreeLine: true,
                 onTap: () {
-                  Navigator.pop(foglio);
+                  Navigator.pop(sheet);
                   onOtherDevicePays!(order);
-                  messaggi.showSnackBar(
+                  messenger.showSnackBar(
                     SnackBar(
                       content: Text(
                         'Il tavolo ${order.tableNumber} risulta incassato '
@@ -118,16 +119,16 @@ class OrdersPage extends StatelessWidget {
     );
   }
 
-  static IconData _icona(OrderState stato) => switch (stato) {
-        OrderState.aperto => Icons.lock_open,
-        OrderState.servito => Icons.room_service,
-        OrderState.pagato => Icons.euro,
+  static IconData _actionIcon(OrderState state) => switch (state) {
+        OrderState.open => Icons.lock_open,
+        OrderState.served => Icons.room_service,
+        OrderState.paid => Icons.euro,
       };
 
-  static String _verbo(OrderState stato) => switch (stato) {
-        OrderState.aperto => 'Riapri il tavolo',
-        OrderState.servito => 'Segna servito',
-        OrderState.pagato => 'Segna pagato',
+  static String _actionLabel(OrderState state) => switch (state) {
+        OrderState.open => 'Riapri il tavolo',
+        OrderState.served => 'Segna servito',
+        OrderState.paid => 'Segna pagato',
       };
 
   @override
@@ -199,7 +200,7 @@ class OrdersPage extends StatelessWidget {
                           state.orders[index - state.conflicts.length];
                       return OrderTile(
                         order: order,
-                        onTap: () => _mostraAzioni(context, order),
+                        onTap: () => _showActions(context, order),
                       );
                     },
                   ),

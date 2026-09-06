@@ -59,9 +59,9 @@ void main() {
       await createOrder();
       await env.worker.drain();
 
-      final SyncResult subito = await env.worker.drain();
-      expect(subito.skipped, 1);
-      expect(subito.retried, 0);
+      final SyncResult immediately = await env.worker.drain();
+      expect(immediately.skipped, 1);
+      expect(immediately.retried, 0);
     });
 
     test('riprova quando il backoff è trascorso e va a buon fine', () async {

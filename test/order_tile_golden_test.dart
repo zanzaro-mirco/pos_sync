@@ -36,11 +36,11 @@ import 'package:pos_sync/features/orders/presentation/order_tile.dart';
 /// sé il proprio stack di font e di disegno, e un aggiornamento sposterebbe i
 /// pixel senza che nessuno abbia toccato il codice.
 void main() {
-  Order ordine(SyncStatus stato) => Order(
+  Order order(SyncStatus status) => Order(
         id: 'id-1',
         tableNumber: 12,
         createdAt: DateTime(2026, 7, 27, 12),
-        status: stato,
+        status: status,
         lines: const <OrderLine>[
           OrderLine(
             id: 'r-01',
@@ -59,7 +59,7 @@ void main() {
         ],
       );
 
-  Widget cornice(Order order) => MaterialApp(
+  Widget frame(Order order) => MaterialApp(
         debugShowCheckedModeBanner: false,
         theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.indigo),
         home: Scaffold(
@@ -79,8 +79,8 @@ void main() {
         ),
       );
 
-  for (final SyncStatus stato in SyncStatus.values) {
-    testWidgets('la riga nello stato ${stato.name}',
+  for (final SyncStatus status in SyncStatus.values) {
+    testWidgets('la riga nello stato ${status.name}',
         (WidgetTester tester) async {
       // Un pixel logico per pixel dell'immagine, e una finestra della misura
       // del soggetto: i riferimenti restano piccoli e leggibili in una
@@ -93,11 +93,11 @@ void main() {
       // all'infinito e non si assesterebbe mai. Il primo fotogramma è comunque
       // deterministico, perché nei test l'orologio delle animazioni parte da
       // zero.
-      await tester.pumpWidget(cornice(ordine(stato)));
+      await tester.pumpWidget(frame(order(status)));
 
       await expectLater(
         find.byType(OrderTile),
-        matchesGoldenFile('goldens/order_tile_${stato.name}.png'),
+        matchesGoldenFile('goldens/order_tile_${status.name}.png'),
       );
     }, skip: !Platform.isLinux);
   }

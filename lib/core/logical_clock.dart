@@ -41,14 +41,14 @@ class LamportClock implements LogicalClock {
 
   String _deviceId = '';
   int _counter = 0;
-  bool _caricato = false;
+  bool _loaded = false;
 
   /// Contatore corrente, per i test e per la diagnostica.
   int get counter => _counter;
 
   @override
   Future<Revision> tick() async {
-    await _carica();
+    await _load();
     _counter++;
     // Persistito *prima* di restituire la revisione. Se dopo un riavvio il
     // contatore ripartisse da un valore già usato, due modifiche diverse dello
@@ -60,7 +60,7 @@ class LamportClock implements LogicalClock {
 
   @override
   Future<void> witness(Revision seen) async {
-    await _carica();
+    await _load();
     if (seen.counter <= _counter) return;
     _counter = seen.counter;
     await _store.saveCounter(_counter);
@@ -70,11 +70,11 @@ class LamportClock implements LogicalClock {
   ///
   /// Pigro di proposito: la composition root resta sincrona, e un dispositivo
   /// che non modifica niente non apre la base dati per sapere come si chiama.
-  Future<void> _carica() async {
-    if (_caricato) return;
+  Future<void> _load() async {
+    if (_loaded) return;
     _deviceId = await _store.loadDeviceId();
     _counter = await _store.loadCounter();
-    _caricato = true;
+    _loaded = true;
   }
 }
 

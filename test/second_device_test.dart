@@ -21,28 +21,28 @@ import 'helpers/fixtures.dart';
 
 void main() {
   late TestEnv tablet;
-  late SecondDevice altro;
+  late SecondDevice other;
 
   setUp(() {
     tablet = TestEnv();
-    altro = SecondDevice(server: tablet.api.server);
+    other = SecondDevice(server: tablet.api.server);
   });
 
   tearDown(() => tablet.dispose());
 
   /// L'ordine com'è adesso nel deposito locale.
-  Future<Order> locale(String id) async => (await tablet.store.orderById(id))!;
+  Future<Order> local(String id) async => (await tablet.store.orderById(id))!;
 
   /// Crea un tavolo e lo porta al server, che è il punto di partenza di ogni
   /// dimostrazione: prima che l'altro tablet possa incassare qualcosa, quel
   /// qualcosa deve esistere per entrambi.
-  Future<Order> tavoloSincronizzato({int numero = 7}) async {
-    final Order ordine = await tablet.repository.createOrder(
-      tableNumber: numero,
+  Future<Order> syncedTable({int number = 7}) async {
+    final Order order = await tablet.repository.createOrder(
+      tableNumber: number,
       lines: sampleLines,
     );
     await tablet.worker.drain();
-    return locale(ordine.id);
+    return local(order.id);
   }
 
   test('incassare e basta non è un conflitto: il pagamento si fonde', () async {
@@ -50,41 +50,41 @@ void main() {
     // abbia chiuso il conto bastasse a interrompere qualcuno, il sistema
     // chiederebbe conferma nel caso normale — e una richiesta che arriva
     // sempre si smette di leggere.
-    final Order ordine = await tavoloSincronizzato();
+    final Order order = await syncedTable();
 
-    altro.pays(ordine);
+    other.pays(order);
     await tablet.worker.drain();
 
     expect(await tablet.store.openConflicts(), isEmpty);
-    expect((await locale(ordine.id)).state, OrderState.pagato,
+    expect((await local(order.id)).state, OrderState.paid,
         reason: 'il pagamento altrui vince il last-write-wins e arriva qui');
   });
 
   test('la comanda che arriva dopo il pagamento fa nascere il conflitto',
       () async {
     // La sequenza esatta che si esegue col dito.
-    final Order ordine = await tavoloSincronizzato();
+    final Order order = await syncedTable();
 
-    altro.pays(ordine); // l'altro tablet chiude il conto
+    other.pays(order); // l'altro tablet chiude il conto
     await tablet.repository
-        .addLines(orderId: ordine.id, lines: sampleLines); // comanda tardiva
+        .addLines(orderId: order.id, lines: sampleLines); // comanda tardiva
     await tablet.worker.drain();
 
-    final List<OrderConflict> conflitti = await tablet.store.openConflicts();
-    expect(conflitti, hasLength(1));
-    expect(conflitti.single.tableNumber, 7);
-    expect(conflitti.single.reason, contains('non erano nel conto'));
-    expect(conflitti.single.mine.lines, hasLength(2));
-    expect(conflitti.single.theirs.state, OrderState.pagato);
+    final List<OrderConflict> conflicts = await tablet.store.openConflicts();
+    expect(conflicts, hasLength(1));
+    expect(conflicts.single.tableNumber, 7);
+    expect(conflicts.single.reason, contains('non erano nel conto'));
+    expect(conflicts.single.mine.lines, hasLength(2));
+    expect(conflicts.single.theirs.state, OrderState.paid);
   });
 
   test('sincronizzare ancora non duplica la scheda', () async {
     // Finché nessuno decide, il server continua a restituire la stessa
     // versione altrui: senza il controllo sui conflitti già aperti la
     // schermata si riempirebbe di schede identiche.
-    final Order ordine = await tavoloSincronizzato();
-    altro.pays(ordine);
-    await tablet.repository.addLines(orderId: ordine.id, lines: sampleLines);
+    final Order order = await syncedTable();
+    other.pays(order);
+    await tablet.repository.addLines(orderId: order.id, lines: sampleLines);
 
     await tablet.worker.drain();
     await tablet.worker.drain();
@@ -94,13 +94,13 @@ void main() {
   });
 
   test('decidere chiude la questione, e non si riapre da sola', () async {
-    final Order ordine = await tavoloSincronizzato();
-    altro.pays(ordine);
-    await tablet.repository.addLines(orderId: ordine.id, lines: sampleLines);
+    final Order order = await syncedTable();
+    other.pays(order);
+    await tablet.repository.addLines(orderId: order.id, lines: sampleLines);
     await tablet.worker.drain();
 
-    final OrderConflict conflitto = (await tablet.store.openConflicts()).single;
-    await tablet.repository.resolveConflict(conflitto.id, ConflictChoice.mine);
+    final OrderConflict conflict = (await tablet.store.openConflicts()).single;
+    await tablet.repository.resolveConflict(conflict.id, ConflictChoice.mine);
 
     // La versione decisa nasce con una revisione nuova, quindi batte quella
     // dell'altro dispositivo: la fusione successiva riesce da sola e nessuno
@@ -109,7 +109,7 @@ void main() {
     await tablet.worker.drain();
 
     expect(await tablet.store.openConflicts(), isEmpty);
-    expect((await locale(ordine.id)).lines, hasLength(2),
+    expect((await local(order.id)).lines, hasLength(2),
         reason: 'qualunque sia la scelta, nessuna comanda sparisce');
   });
 
@@ -117,10 +117,10 @@ void main() {
     // Se i due condividessero l'identificativo, il server considererebbe la
     // versione «già nostra» e non la restituirebbe: non nascerebbe nessun
     // conflitto, e la dimostrazione fallirebbe in silenzio.
-    final Order ordine = await tavoloSincronizzato();
-    altro.pays(ordine);
+    final Order order = await syncedTable();
+    other.pays(order);
 
-    expect(altro.deviceId, isNot(tablet.deviceId));
+    expect(other.deviceId, isNot(tablet.deviceId));
     expect(await tablet.api.fetchOrders(), hasLength(1),
         reason: 'il rientro deve vedere la versione dell\'altro tablet');
   });

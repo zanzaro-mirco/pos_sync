@@ -16,26 +16,26 @@ import 'package:pos_sync/features/orders/sync/sync_worker.dart';
 /// Conta anche le chiamate ricevute, così si può verificare che i comandi
 /// dell'interfaccia arrivino a destinazione invece di limitarsi a verificare
 /// che i pulsanti esistano.
-class CubitPreimpostato extends Cubit<OrdersState> implements OrdersCubit {
-  CubitPreimpostato(super.initialState);
+class PresetCubit extends Cubit<OrdersState> implements OrdersCubit {
+  PresetCubit(super.initialState);
 
-  int avvii = 0;
-  int sincronizzazioni = 0;
-  final List<int> tavoliAggiunti = <int>[];
-  final List<String> comandeAggiunte = <String>[];
-  final List<(String, OrderState)> statiCambiati = <(String, OrderState)>[];
-  final List<(String, ConflictChoice)> conflittiRisolti =
+  int starts = 0;
+  int syncs = 0;
+  final List<int> addedTables = <int>[];
+  final List<String> addedLines = <String>[];
+  final List<(String, OrderState)> changedStates = <(String, OrderState)>[];
+  final List<(String, ConflictChoice)> resolvedConflicts =
       <(String, ConflictChoice)>[];
 
   @override
-  void start() => avvii++;
+  void start() => starts++;
 
   @override
   Future<void> addOrder({
     required int tableNumber,
     required List<OrderLineDraft> lines,
   }) async {
-    tavoliAggiunti.add(tableNumber);
+    addedTables.add(tableNumber);
   }
 
   @override
@@ -43,7 +43,7 @@ class CubitPreimpostato extends Cubit<OrdersState> implements OrdersCubit {
     required String orderId,
     required List<OrderLineDraft> lines,
   }) async {
-    comandeAggiunte.add(orderId);
+    addedLines.add(orderId);
   }
 
   @override
@@ -51,7 +51,7 @@ class CubitPreimpostato extends Cubit<OrdersState> implements OrdersCubit {
     required String orderId,
     required OrderState state,
   }) async {
-    statiCambiati.add((orderId, state));
+    changedStates.add((orderId, state));
   }
 
   @override
@@ -59,12 +59,12 @@ class CubitPreimpostato extends Cubit<OrdersState> implements OrdersCubit {
     OrderConflict conflict,
     ConflictChoice choice,
   ) async {
-    conflittiRisolti.add((conflict.id, choice));
+    resolvedConflicts.add((conflict.id, choice));
   }
 
   @override
   Future<SyncResult> sync() async {
-    sincronizzazioni++;
+    syncs++;
     return const SyncResult();
   }
 }

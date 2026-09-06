@@ -92,11 +92,11 @@ class DriftOrderStore
 
   @override
   Future<int> pendingCount() async {
-    final Expression<int> conteggio = countAll();
+    final Expression<int> count = countAll();
     final JoinedSelectStatement<$OutboxTable, OutboxRow> query =
-        _db.selectOnly(_db.outbox)..addColumns(<Expression<Object>>[conteggio]);
-    final TypedResult riga = await query.getSingle();
-    return riga.read(conteggio) ?? 0;
+        _db.selectOnly(_db.outbox)..addColumns(<Expression<Object>>[count]);
+    final TypedResult row = await query.getSingle();
+    return row.read(count) ?? 0;
   }
 
   // --- OrdersWatcher ---
@@ -210,14 +210,14 @@ class DriftOrderStore
           ]))
         .get();
 
-    final Map<String, List<OrderLineRow>> perOrdine =
+    final Map<String, List<OrderLineRow>> linesByOrder =
         <String, List<OrderLineRow>>{};
-    for (final OrderLineRow riga in lineRows) {
-      (perOrdine[riga.orderId] ??= <OrderLineRow>[]).add(riga);
+    for (final OrderLineRow row in lineRows) {
+      (linesByOrder[row.orderId] ??= <OrderLineRow>[]).add(row);
     }
 
     return List<Order>.unmodifiable(rows.map((OrderRow r) =>
-        _toOrder(r, perOrdine[r.id] ?? const <OrderLineRow>[])));
+        _toOrder(r, linesByOrder[r.id] ?? const <OrderLineRow>[])));
   }
 
   // --- mappatura riga <-> dominio ---

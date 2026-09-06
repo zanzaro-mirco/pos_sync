@@ -91,14 +91,14 @@ class OrdersRepositoryImpl implements OrdersRepository {
     // dispositivi. Concatenarle e basta funzionerebbe qui e produrrebbe un
     // ordinamento diverso da quello che si ottiene sincronizzando, cioè due
     // liste con gli stessi elementi che non si possono confrontare.
-    final List<OrderLine> nuove = await _stamp(lines);
+    final List<OrderLine> added = await _stamp(lines);
     final Resolution<List<OrderLine>> merged =
-        _lineMerge.merge(order.lines, nuove);
-    final List<OrderLine> tutte = merged is Resolved<List<OrderLine>>
+        _lineMerge.merge(order.lines, added);
+    final List<OrderLine> allLines = merged is Resolved<List<OrderLine>>
         ? merged.value
-        : <OrderLine>[...order.lines, ...nuove];
+        : <OrderLine>[...order.lines, ...added];
 
-    final Order updated = order.copyWith(lines: tutte);
+    final Order updated = order.copyWith(lines: allLines);
     await _enqueue(updated);
     return updated;
   }
@@ -130,7 +130,7 @@ class OrdersRepositoryImpl implements OrdersRepository {
     // errore, è la conseguenza di un dato condiviso.
     if (conflict == null) return;
 
-    final Order vincente =
+    final Order winner =
         choice == ConflictChoice.mine ? conflict.mine : conflict.theirs;
 
     // Le righe si uniscono comunque: la decisione riguarda lo stato del tavolo,
@@ -143,13 +143,13 @@ class OrdersRepositoryImpl implements OrdersRepository {
     // essa stessa una modifica, e deve battere entrambe le versioni che l'hanno
     // provocata anche sugli altri dispositivi. Senza, l'altro dispositivo
     // rifonderebbe le stesse due e ricadrebbe nello stesso conflitto.
-    final Order risolto = conflict.mine.copyWith(
+    final Order resolved = conflict.mine.copyWith(
       lines: lines is Resolved<List<OrderLine>> ? lines.value : null,
-      state: vincente.state,
+      state: winner.state,
       stateRevision: await _logical.tick(),
     );
 
-    await _enqueue(risolto);
+    await _enqueue(resolved);
     await _conflicts.removeConflict(conflictId);
   }
 

@@ -44,11 +44,11 @@ void main() {
   });
 
   test('le righe dell ordine non sono modificabili dall esterno', () async {
-    final List<OrderLineDraft> mutabili = <OrderLineDraft>[...sampleLines];
+    final List<OrderLineDraft> mutable = <OrderLineDraft>[...sampleLines];
     final Order order =
-        await env.repository.createOrder(tableNumber: 1, lines: mutabili);
+        await env.repository.createOrder(tableNumber: 1, lines: mutable);
 
-    mutabili.clear(); // la lista originale cambia
+    mutable.clear(); // la lista originale cambia
     expect(order.lines.length, 1, reason: 'l ordine non deve risentirne');
     expect(
       () => order.lines.add(order.lines.first),

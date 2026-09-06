@@ -20,8 +20,8 @@ import 'store_contract.dart';
 /// delle righe, quindi se la transazione non annullasse tutto resterebbe un
 /// ordine senza righe e senza voce in coda — cioè esattamente lo stato
 /// incoerente che `OutboxEntry` dichiara impossibile.
-class _DatabaseCheFallisce extends AppDatabase {
-  _DatabaseCheFallisce(super.executor);
+class _FailingDatabase extends AppDatabase {
+  _FailingDatabase(super.executor);
 
   @override
   Future<void> batch(FutureOr<void> Function(Batch batch) runInBatch) =>
@@ -84,8 +84,8 @@ void main() {
 
     test('deleteOrder porta via le righe per cascata', () async {
       await store.saveOrderWithOutbox(
-        ordine(id: 'o-1', creato: t0, righe: treRighe),
-        voce(id: 'q-1', ordineId: 'o-1', creato: t0),
+        order(id: 'o-1', created: t0, lines: threeLines),
+        entry(id: 'q-1', orderId: 'o-1', created: t0),
       );
       expect((await db.select(db.orderLines).get()).length, 3);
 
@@ -95,81 +95,81 @@ void main() {
     });
 
     test('una scrittura fallita non lascia l ordine a metà', () async {
-      final AppDatabase rotto = _DatabaseCheFallisce(NativeDatabase.memory());
-      addTearDown(rotto.close);
-      final DriftOrderStore fragile = DriftOrderStore(rotto);
+      final AppDatabase broken = _FailingDatabase(NativeDatabase.memory());
+      addTearDown(broken.close);
+      final DriftOrderStore fragile = DriftOrderStore(broken);
 
       await expectLater(
         fragile.saveOrderWithOutbox(
-          ordine(id: 'o-1', creato: t0),
-          voce(id: 'q-1', ordineId: 'o-1', creato: t0),
+          order(id: 'o-1', created: t0),
+          entry(id: 'q-1', orderId: 'o-1', created: t0),
         ),
         throwsA(isA<StateError>()),
       );
 
       // La testata era già stata inserita quando la scrittura è fallita: se
       // fosse ancora qui, la transazione non esisterebbe.
-      expect(await rotto.select(rotto.orders).get(), isEmpty);
-      expect(await rotto.select(rotto.outbox).get(), isEmpty);
+      expect(await broken.select(broken.orders).get(), isEmpty);
+      expect(await broken.select(broken.outbox).get(), isEmpty);
     });
 
     test('una transazione produce una sola emissione, non una per tabella',
         () async {
-      final List<OrdersSnapshot> visti = <OrdersSnapshot>[];
+      final List<OrdersSnapshot> seen = <OrdersSnapshot>[];
       final StreamSubscription<OrdersSnapshot> sub =
-          store.watch().listen(visti.add);
+          store.watch().listen(seen.add);
       addTearDown(sub.cancel);
       await pumpEventQueue();
-      expect(visti.length, 1);
+      expect(seen.length, 1);
 
       // Tre scritture — ordine, righe, coda — dentro una transazione.
       await store.saveOrderWithOutbox(
-        ordine(id: 'o-1', creato: t0, righe: treRighe),
-        voce(id: 'q-1', ordineId: 'o-1', creato: t0),
+        order(id: 'o-1', created: t0, lines: threeLines),
+        entry(id: 'q-1', orderId: 'o-1', created: t0),
       );
       await pumpEventQueue();
 
-      expect(visti.length, 2, reason: 'una fotografia in più, non tre');
+      expect(seen.length, 2, reason: 'una fotografia in più, non tre');
     });
 
     test('i dati sopravvivono alla chiusura e alla riapertura', () async {
       // Il criterio della roadmap, nella sua forma più diretta. In memoria
       // questo test non si può nemmeno scrivere.
-      final Directory cartella =
+      final Directory directory =
           Directory.systemTemp.createTempSync('pos_sync_persistenza');
-      final File file = File('${cartella.path}/pos_sync.db');
+      final File file = File('${directory.path}/pos_sync.db');
 
-      final AppDatabase prima = AppDatabase(NativeDatabase(file));
-      await DriftOrderStore(prima).saveOrderWithOutbox(
-        ordine(
+      final AppDatabase before = AppDatabase(NativeDatabase(file));
+      await DriftOrderStore(before).saveOrderWithOutbox(
+        order(
           id: 'o-1',
-          creato: t0,
-          tavolo: 12,
-          righe: treRighe,
-          stato: SyncStatus.pending,
+          created: t0,
+          table: 12,
+          lines: threeLines,
+          status: SyncStatus.pending,
         ),
-        voce(id: 'q-1', ordineId: 'o-1', creato: t0),
+        entry(id: 'q-1', orderId: 'o-1', created: t0),
       );
-      await prima.close();
+      await before.close();
 
       expect(file.existsSync(), isTrue, reason: 'il file deve esistere');
 
-      final AppDatabase dopo = AppDatabase(NativeDatabase(file));
+      final AppDatabase after = AppDatabase(NativeDatabase(file));
       // Su Windows un file aperto non si cancella: prima si chiude, poi si
       // toglie la cartella.
       addTearDown(() async {
-        await dopo.close();
-        cartella.deleteSync(recursive: true);
+        await after.close();
+        directory.deleteSync(recursive: true);
       });
-      final DriftOrderStore riaperto = DriftOrderStore(dopo);
+      final DriftOrderStore reopened = DriftOrderStore(after);
 
-      final Order ritrovato = (await riaperto.allOrders()).single;
-      expect(ritrovato.id, 'o-1');
-      expect(ritrovato.tableNumber, 12);
-      expect(ritrovato.createdAt, t0);
-      expect(ritrovato.lines, treRighe);
-      expect(ritrovato.status, SyncStatus.pending);
-      expect((await riaperto.pendingOutbox()).single.id, 'q-1');
+      final Order found = (await reopened.allOrders()).single;
+      expect(found.id, 'o-1');
+      expect(found.tableNumber, 12);
+      expect(found.createdAt, t0);
+      expect(found.lines, threeLines);
+      expect(found.status, SyncStatus.pending);
+      expect((await reopened.pendingOutbox()).single.id, 'q-1');
     });
 
     test('uno stato sconosciuto degrada a pending', () async {
@@ -178,7 +178,7 @@ void main() {
             id: 'o-1',
             tableNumber: 1,
             createdAt: t0.microsecondsSinceEpoch,
-            state: OrderState.aperto.name,
+            state: OrderState.open.name,
             stateRevisionCounter: 0,
             stateRevisionDevice: '',
             status: 'stato-inventato',
@@ -195,56 +195,56 @@ void main() {
             tableNumber: 1,
             createdAt: t0.microsecondsSinceEpoch,
             status: SyncStatus.pending.name,
-            state: OrderState.aperto.name,
+            state: OrderState.open.name,
             stateRevisionCounter: 0,
             stateRevisionDevice: '',
           ));
 
-      final Order letto = (await store.allOrders()).single;
-      expect(letto.lines, isEmpty);
-      expect(letto.totalCents, 0);
+      final Order loaded = (await store.allOrders()).single;
+      expect(loaded.lines, isEmpty);
+      expect(loaded.totalCents, 0);
     });
 
     test('le righe di ordini diversi non si mescolano', () async {
       await store.saveOrderWithOutbox(
-        ordine(id: 'o-1', creato: t0, righe: treRighe),
-        voce(id: 'q-1', ordineId: 'o-1', creato: t0),
+        order(id: 'o-1', created: t0, lines: threeLines),
+        entry(id: 'q-1', orderId: 'o-1', created: t0),
       );
       await store.saveOrderWithOutbox(
-        ordine(
+        order(
           id: 'o-2',
-          creato: t0.add(const Duration(minutes: 1)),
-          righe: unaRiga,
+          created: t0.add(const Duration(minutes: 1)),
+          lines: oneLine,
         ),
-        voce(
+        entry(
           id: 'q-2',
-          ordineId: 'o-2',
-          creato: t0.add(const Duration(minutes: 1)),
+          orderId: 'o-2',
+          created: t0.add(const Duration(minutes: 1)),
         ),
       );
 
-      final List<Order> ordini = await store.allOrders();
-      expect(ordini.first.id, 'o-2');
-      expect(ordini.first.lines, unaRiga);
-      expect(ordini.last.lines, treRighe);
+      final List<Order> orders = await store.allOrders();
+      expect(orders.first.id, 'o-2');
+      expect(orders.first.lines, oneLine);
+      expect(orders.last.lines, threeLines);
     });
 
     test('la coda conserva i tentativi di una voce riprovata', () async {
-      final OutboxEntry e = voce(id: 'q-1', ordineId: 'o-1', creato: t0);
-      await store.saveOrderWithOutbox(ordine(id: 'o-1', creato: t0), e);
+      final OutboxEntry e = entry(id: 'q-1', orderId: 'o-1', created: t0);
+      await store.saveOrderWithOutbox(order(id: 'o-1', created: t0), e);
 
-      OutboxEntry corrente = e;
+      OutboxEntry current = e;
       for (int i = 1; i <= 3; i++) {
-        corrente = corrente.withFailure(
+        current = current.withFailure(
           nextAttemptAt: t0.add(Duration(seconds: i * 2)),
           error: 'tentativo $i',
         );
-        await store.updateOutboxEntry(corrente);
+        await store.updateOutboxEntry(current);
       }
 
-      final OutboxEntry riletta = (await store.pendingOutbox()).single;
-      expect(riletta.attempts, 3);
-      expect(riletta.lastError, 'tentativo 3');
+      final OutboxEntry reread = (await store.pendingOutbox()).single;
+      expect(reread.attempts, 3);
+      expect(reread.lastError, 'tentativo 3');
       expect(await store.pendingCount(), 1);
     });
   });

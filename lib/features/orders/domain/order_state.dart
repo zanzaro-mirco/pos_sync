@@ -9,13 +9,13 @@ import 'revision.dart';
 /// dispositivi diversi — cioè l'unico posto dove un conflitto può nascere.
 enum OrderState {
   /// Ordinato, non ancora servito.
-  aperto,
+  open,
 
   /// Portato al tavolo.
-  servito,
+  served,
 
   /// Conto saldato.
-  pagato,
+  paid,
 }
 
 /// Lo stato del tavolo insieme alla revisione che lo data.

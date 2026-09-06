@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../domain/order.dart';
 import '../domain/order_state.dart';
 import '../domain/sync_status.dart';
+import 'order_state_label.dart';
 
 /// Una riga della lista ordini.
 ///
@@ -19,15 +20,15 @@ class OrderTile extends StatelessWidget {
   /// sola, senza che nessuno debba inventarsi un'azione per poterla disegnare.
   final VoidCallback? onTap;
 
-  /// `aperto` non si scrive.
+  /// `open` non si scrive.
   ///
   /// È lo stato normale di un tavolo, e ripeterlo su ogni riga riempirebbe la
   /// lista di una parola che non distingue niente: si nota ciò che è raro, non
   /// ciò che c'è ovunque. Ha anche l'effetto di lasciare intatti i quattro
   /// riferimenti golden, che ritraggono tavoli aperti.
-  String get _sottotitolo => order.state == OrderState.aperto
+  String get _subtitle => order.state == OrderState.open
       ? '${order.itemCount} articoli'
-      : '${order.itemCount} articoli · ${order.state.name}';
+      : '${order.itemCount} articoli · ${orderStateLabel(order.state)}';
 
   @override
   Widget build(BuildContext context) {
@@ -35,7 +36,7 @@ class OrderTile extends StatelessWidget {
       onTap: onTap,
       leading: SyncStatusIcon(status: order.status),
       title: Text('Tavolo ${order.tableNumber}'),
-      subtitle: Text(_sottotitolo),
+      subtitle: Text(_subtitle),
       trailing: Text('${(order.totalCents / 100).toStringAsFixed(2)} €'),
     );
   }
@@ -57,24 +58,24 @@ class SyncStatusIcon extends StatelessWidget {
   const SyncStatusIcon({super.key, required this.status});
 
   /// Grigio: salvato, in attesa del suo turno. Non è un problema.
-  static const Color inAttesa = Color(0xFF757575);
+  static const Color pending = Color(0xFF757575);
 
   /// Verde: confermato dal server.
-  static const Color sincronizzato = Color(0xFF2E7D32);
+  static const Color synced = Color(0xFF2E7D32);
 
   /// Rosso: rifiutato in modo definitivo, richiede intervento.
-  static const Color fallito = Color(0xFFC62828);
+  static const Color failed = Color(0xFFC62828);
 
   final SyncStatus status;
 
   @override
   Widget build(BuildContext context) {
     return Semantics(
-      label: _etichetta,
+      label: _label,
       child: switch (status) {
         SyncStatus.pending => const Icon(
             Icons.schedule,
-            color: inAttesa,
+            color: pending,
             key: Key('status-pending'),
           ),
         // L'invio è l'unico stato in movimento, ed è l'unico che segue il
@@ -87,19 +88,19 @@ class SyncStatusIcon extends StatelessWidget {
           ),
         SyncStatus.synced => const Icon(
             Icons.cloud_done,
-            color: sincronizzato,
+            color: synced,
             key: Key('status-synced'),
           ),
         SyncStatus.failed => const Icon(
             Icons.error_outline,
-            color: fallito,
+            color: failed,
             key: Key('status-failed'),
           ),
       },
     );
   }
 
-  String get _etichetta => switch (status) {
+  String get _label => switch (status) {
         SyncStatus.pending => 'Da inviare',
         SyncStatus.sending => 'Invio in corso',
         SyncStatus.synced => 'Sincronizzato',

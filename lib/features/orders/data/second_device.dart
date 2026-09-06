@@ -40,7 +40,7 @@ class SecondDevice {
   /// ne prende atto con `witness` e riparte da lì.
   void pays(Order order) => server.store(
         order.copyWith(
-          state: OrderState.pagato,
+          state: OrderState.paid,
           stateRevision: Revision(
             counter: order.stateRevision.counter + 1,
             deviceId: deviceId,

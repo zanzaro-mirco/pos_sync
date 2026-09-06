@@ -106,7 +106,7 @@ class LastWriteWinsState implements ConflictPolicy<StampedState> {
 /// incassate a parte o se il pagamento va rifatto: lo decide chi è lì.
 ///
 /// Da notare cosa **non** è un conflitto: due dispositivi che aggiungono piatti,
-/// due che portano il tavolo a `servito`, uno che serve mentre l'altro aggiunge.
+/// due che portano il tavolo a `served`, uno che serve mentre l'altro aggiunge.
 /// Tutto questo converge da solo e non deve interrompere nessuno — un sistema
 /// che chiede conferma troppo spesso viene ignorato, ed è un modo più lento di
 /// non avere gestione dei conflitti.
@@ -157,7 +157,7 @@ class OrderConflictPolicy implements ConflictPolicy<Order> {
           mine: mine,
           theirs: theirs,
           reason: 'Il tavolo ${mine.tableNumber} risulta pagato, ma '
-              '${_articoli(unseen)} non erano nel conto',
+              '${_itemsLabel(unseen)} non erano nel conto',
         );
       }
     }
@@ -171,10 +171,10 @@ class OrderConflictPolicy implements ConflictPolicy<Order> {
   /// La versione che ha vinto, se ha vinto dichiarando il tavolo pagato.
   ///
   /// Il confronto è sulla revisione e non sul valore: due versioni possono
-  /// essere entrambe `pagato`, e in quel caso non c'è niente da chiedere.
+  /// essere entrambe `paid`, e in quel caso non c'è niente da chiedere.
   static Order? _payingSide(Order mine, Order theirs, StampedState winner) {
-    if (winner.value != OrderState.pagato) return null;
-    if (mine.state == OrderState.pagato && theirs.state == OrderState.pagato) {
+    if (winner.value != OrderState.paid) return null;
+    if (mine.state == OrderState.paid && theirs.state == OrderState.paid) {
       return null;
     }
     return mine.stateRevision == winner.revision ? mine : theirs;
@@ -195,9 +195,9 @@ class OrderConflictPolicy implements ConflictPolicy<Order> {
         .toList(growable: false);
   }
 
-  static String _articoli(List<OrderLine> lines) {
-    final int quantita =
+  static String _itemsLabel(List<OrderLine> lines) {
+    final int quantity =
         lines.fold<int>(0, (int acc, OrderLine l) => acc + l.quantity);
-    return quantita == 1 ? '1 articolo' : '$quantita articoli';
+    return quantity == 1 ? '1 articolo' : '$quantity articoli';
   }
 }

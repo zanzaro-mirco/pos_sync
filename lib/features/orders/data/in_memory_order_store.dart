@@ -38,10 +38,10 @@ class InMemoryOrderStore
   OrdersSnapshot get _snapshot => OrdersSnapshot(
         orders: _sorted,
         pending: _outbox.length,
-        conflicts: _conflittiOrdinati,
+        conflicts: _sortedConflicts,
       );
 
-  List<OrderConflict> get _conflittiOrdinati {
+  List<OrderConflict> get _sortedConflicts {
     final List<OrderConflict> list = _conflicts.values.toList()
       ..sort((OrderConflict a, OrderConflict b) =>
           a.detectedAt.compareTo(b.detectedAt));
@@ -119,7 +119,7 @@ class InMemoryOrderStore
   // --- ConflictStore ---
 
   @override
-  Future<List<OrderConflict>> openConflicts() async => _conflittiOrdinati;
+  Future<List<OrderConflict>> openConflicts() async => _sortedConflicts;
 
   @override
   Future<void> recordConflict(OrderConflict conflict) async {

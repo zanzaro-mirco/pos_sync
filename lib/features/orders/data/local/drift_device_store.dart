@@ -15,7 +15,7 @@ class DriftDeviceStore implements LogicalClockStore {
   DriftDeviceStore(this._db, {IdGenerator idGenerator = const UuidGenerator()})
       : _ids = idGenerator;
 
-  static const int _rigaUnica = 1;
+  static const int _singleRowId = 1;
 
   final AppDatabase _db;
   final IdGenerator _ids;
@@ -35,17 +35,17 @@ class DriftDeviceStore implements LogicalClockStore {
   }
 
   Future<DeviceRow> _row() => _db.transaction(() async {
-        final DeviceRow? esistente = await (_db.select(_db.deviceIdentity)
-              ..where(($DeviceIdentityTable t) => t.id.equals(_rigaUnica)))
+        final DeviceRow? existing = await (_db.select(_db.deviceIdentity)
+              ..where(($DeviceIdentityTable t) => t.id.equals(_singleRowId)))
             .getSingleOrNull();
-        if (esistente != null) return esistente;
+        if (existing != null) return existing;
 
-        final DeviceRow nuova = DeviceRow(
-          id: _rigaUnica,
+        final DeviceRow created = DeviceRow(
+          id: _singleRowId,
           deviceId: _ids.next(),
           counter: 0,
         );
-        await _db.into(_db.deviceIdentity).insert(nuova);
-        return nuova;
+        await _db.into(_db.deviceIdentity).insert(created);
+        return created;
       });
 }

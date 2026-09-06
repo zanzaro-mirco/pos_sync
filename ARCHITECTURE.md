@@ -45,7 +45,26 @@ features/orders/
     orders_cubit.dart  orders_state.dart  orders_page.dart
     order_tile.dart            la riga della lista + l'indicatore di stato
     conflict_card.dart         le due versioni e i due pulsanti
+    table_number_dialog.dart   il numero del tavolo, ripetibile
+    order_state_label.dart     come si scrive uno stato in sala
 ```
+
+## Due lingue, e non è un caso
+
+**Gli identificatori sono in inglese, la prosa è in italiano.** Nomi di classi,
+metodi, variabili e costanti si leggono come in qualunque altro progetto Dart;
+commenti, dartdoc, descrizioni dei test e testo dell'interfaccia restano nella
+lingua di chi lavora in sala — e di chi ha scritto questo file.
+
+La separazione ha avuto un costo che vale la pena raccontare, perché è il tipo di
+accoppiamento che si nota solo quando si prova a scioglierlo. `OrderState` aveva
+le costanti `aperto`, `servito` e `pagato`, e `state.name` faceva **tre** mestieri
+insieme: il nome nel codice, la parola letta dall'operatore e il valore scritto
+su SQLite. Rinominare le costanti — una modifica interna — avrebbe quindi
+cambiato la lingua dell'interfaccia *e* invalidato i dati già salvati. Da qui due
+aggiunte: `order_state_label.dart`, che traduce esplicitamente per lo schermo, e
+un `parseOrderState` che accetta ancora i nomi vecchi, così un dispositivo
+aggiornato non si ritrova i tavoli riaperti in silenzio.
 
 ## MVVM, in concreto
 
@@ -202,7 +221,7 @@ l'assenza ancora meno giustificabile.
 
 ### Un cubit preimpostato, non il grafo vero
 
-I widget test montano `OrdersPage` su un `CubitPreimpostato`, che è un
+I widget test montano `OrdersPage` su un `PresetCubit`, che è un
 `Cubit<OrdersState>` e niente altro: nessun repository, nessun worker, nessun
 database. Un test che monta il grafo vero per vedere una lista vuota sta
 testando il grafo, non la pagina — e fallisce per motivi che con la pagina non

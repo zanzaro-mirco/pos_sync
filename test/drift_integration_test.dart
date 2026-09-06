@@ -40,7 +40,7 @@ void main() {
   late OrdersRepositoryImpl repository;
   late SyncWorker worker;
 
-  void monta(AppDatabase database) {
+  void wire(AppDatabase database) {
     db = database;
     store = DriftOrderStore(db);
     clock = FakeClock(t0);
@@ -69,40 +69,40 @@ void main() {
   // applica.
   setUpAll(() => driftRuntimeOptions.dontWarnAboutMultipleDatabases = true);
 
-  setUp(() => monta(AppDatabase(NativeDatabase.memory())));
+  setUp(() => wire(AppDatabase(NativeDatabase.memory())));
   tearDown(() => db.close());
 
   test('un ordine creato dal repository finisce nel database', () async {
-    final Order creato =
-        await repository.createOrder(tableNumber: 4, lines: unaRigaBozza);
+    final Order created =
+        await repository.createOrder(tableNumber: 4, lines: oneLineDraft);
 
-    expect((await store.allOrders()).single.id, creato.id);
-    expect((await store.pendingOutbox()).single.orderId, creato.id);
+    expect((await store.allOrders()).single.id, created.id);
+    expect((await store.pendingOutbox()).single.orderId, created.id);
     expect(await repository.pendingCount(), 1);
   });
 
   test('il worker svuota la coda e segna l ordine come sincronizzato',
       () async {
-    final Order creato =
-        await repository.createOrder(tableNumber: 4, lines: unaRigaBozza);
+    final Order created =
+        await repository.createOrder(tableNumber: 4, lines: oneLineDraft);
 
-    final SyncResult esito = await worker.drain();
+    final SyncResult outcome = await worker.drain();
 
-    expect(esito.sent, 1);
-    expect(api.storedOrderIds, <String>{creato.id});
-    expect((await store.orderById(creato.id))!.status, SyncStatus.synced);
+    expect(outcome.sent, 1);
+    expect(api.storedOrderIds, <String>{created.id});
+    expect((await store.orderById(created.id))!.status, SyncStatus.synced);
     expect(await repository.pendingCount(), 0);
   });
 
   test('offline l ordine resta in coda, e il ritentativo non duplica',
       () async {
     api.online = false;
-    final Order creato =
-        await repository.createOrder(tableNumber: 4, lines: unaRigaBozza);
+    final Order created =
+        await repository.createOrder(tableNumber: 4, lines: oneLineDraft);
 
     await worker.drain();
     expect((await store.pendingOutbox()).single.attempts, 1);
-    expect((await store.orderById(creato.id))!.status, SyncStatus.pending);
+    expect((await store.orderById(created.id))!.status, SyncStatus.pending);
 
     // Torna la rete, e il tempo supera il backoff.
     api.online = true;
@@ -114,58 +114,58 @@ void main() {
   });
 
   test('il flusso del repository segue le scritture del worker', () async {
-    final List<OrdersSnapshot> visti = <OrdersSnapshot>[];
+    final List<OrdersSnapshot> seen = <OrdersSnapshot>[];
     final StreamSubscription<OrdersSnapshot> sub =
-        repository.watch().listen(visti.add);
+        repository.watch().listen(seen.add);
     addTearDown(sub.cancel);
     await pumpEventQueue();
 
-    await repository.createOrder(tableNumber: 4, lines: unaRigaBozza);
+    await repository.createOrder(tableNumber: 4, lines: oneLineDraft);
     await pumpEventQueue();
-    expect(visti.last.orders.length, 1);
-    expect(visti.last.pending, 1);
+    expect(seen.last.orders.length, 1);
+    expect(seen.last.pending, 1);
 
     await worker.drain();
     await pumpEventQueue();
 
-    expect(visti.last.orders.single.status, SyncStatus.synced);
-    expect(visti.last.pending, 0);
+    expect(seen.last.orders.single.status, SyncStatus.synced);
+    expect(seen.last.pending, 0);
   });
 
   test('lo stato di sincronizzazione sopravvive alla riapertura', () async {
     // È la prova che chiude il cerchio: non solo i dati restano, ma restano
     // con il lavoro già fatto sopra di loro. Riaprendo, la coda è vuota e non
     // c'è niente da rimandare.
-    final Directory cartella =
+    final Directory directory =
         Directory.systemTemp.createTempSync('pos_sync_integrazione');
     // Su Windows un file aperto non si cancella: prima si chiude la base dati,
     // poi si toglie la cartella.
     addTearDown(() async {
       await db.close();
-      cartella.deleteSync(recursive: true);
+      directory.deleteSync(recursive: true);
     });
-    final File file = File('${cartella.path}/pos_sync.db');
+    final File file = File('${directory.path}/pos_sync.db');
 
-    monta(AppDatabase(NativeDatabase(file)));
-    final Order creato =
-        await repository.createOrder(tableNumber: 9, lines: treRigheBozza);
+    wire(AppDatabase(NativeDatabase(file)));
+    final Order created =
+        await repository.createOrder(tableNumber: 9, lines: threeLineDrafts);
     await worker.drain();
     await db.close();
 
-    monta(AppDatabase(NativeDatabase(file)));
-    final Order riletto = (await store.allOrders()).single;
+    wire(AppDatabase(NativeDatabase(file)));
+    final Order reread = (await store.allOrders()).single;
 
-    expect(riletto.id, creato.id);
-    expect(riletto.status, SyncStatus.synced);
+    expect(reread.id, created.id);
+    expect(reread.status, SyncStatus.synced);
     // Il confronto è su ciò che è stato ordinato, non sulle righe intere: id e
     // revisione li assegna il repository al volo, e metterli in una costante
     // significherebbe scriverli due volte e verificare la copia.
     expect(
-      riletto.lines.map((OrderLine l) => l.description),
+      reread.lines.map((OrderLine l) => l.description),
       <String>['Antipasto', 'Primo', 'Dolce'],
     );
-    expect(riletto.totalCents, creato.totalCents);
-    expect(riletto.lines, creato.lines,
+    expect(reread.totalCents, created.totalCents);
+    expect(reread.lines, created.lines,
         reason: 'id e revisione devono sopravvivere alla riapertura');
     expect(await repository.pendingCount(), 0);
   });

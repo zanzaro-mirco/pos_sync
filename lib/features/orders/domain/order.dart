@@ -22,7 +22,7 @@ class Order extends Equatable {
     required List<OrderLine> lines,
     required this.createdAt,
     this.status = SyncStatus.pending,
-    this.state = OrderState.aperto,
+    this.state = OrderState.open,
     this.stateRevision = const Revision.initial(),
   }) : lines = List<OrderLine>.unmodifiable(lines);
 

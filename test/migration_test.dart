@@ -67,13 +67,13 @@ const List<String> _schemaV1 = <String>[
 void main() {
   final DateTime t0 = DateTime(2026, 7, 27, 12, 30);
 
-  late Directory cartella;
+  late Directory directory;
   late File file;
   late AppDatabase db;
 
   setUp(() async {
-    cartella = await Directory.systemTemp.createTemp('pos_sync_migrazione');
-    file = File('${cartella.path}/pos_sync.db');
+    directory = await Directory.systemTemp.createTemp('pos_sync_migrazione');
+    file = File('${directory.path}/pos_sync.db');
 
     // `setup` gira all'apertura della connessione, prima che drift guardi la
     // versione dello schema: quando la logica di migrazione entra in scena
@@ -102,44 +102,44 @@ void main() {
 
   tearDown(() async {
     await db.close();
-    await cartella.delete(recursive: true);
+    await directory.delete(recursive: true);
   });
 
   test('un ordine scritto dalla versione 1 si legge ancora', () async {
-    final Order ordine = (await DriftOrderStore(db).allOrders()).single;
+    final Order order = (await DriftOrderStore(db).allOrders()).single;
 
-    expect(ordine.id, 'o-1');
-    expect(ordine.tableNumber, 7);
-    expect(ordine.createdAt, t0);
-    expect(ordine.status, SyncStatus.pending);
-    expect(ordine.lines.map((OrderLine l) => l.description),
+    expect(order.id, 'o-1');
+    expect(order.tableNumber, 7);
+    expect(order.createdAt, t0);
+    expect(order.status, SyncStatus.pending);
+    expect(order.lines.map((OrderLine l) => l.description),
         <String>['Caffè', 'Cornetto']);
-    expect(ordine.totalCents, 390);
+    expect(order.totalCents, 390);
   });
 
   test('lo schema arriva alla versione 2', () async {
     await DriftOrderStore(db).allOrders(); // forza la migrazione
-    final List<QueryRow> righe =
+    final List<QueryRow> rows =
         await db.customSelect('PRAGMA user_version').get();
-    expect(righe.single.data['user_version'], 2);
+    expect(rows.single.data['user_version'], 2);
   });
 
   test('gli ordini vecchi nascono aperti e senza revisione', () async {
     // Il valore di default non è una comodità: SQLite non sa aggiungere una
-    // colonna `NOT NULL` senza, e `aperto` è la scelta prudente — un tavolo che
+    // colonna `NOT NULL` senza, e `open` è la scelta prudente — un tavolo che
     // resta aperto per errore si nota, uno che risulta pagato per errore no.
-    final Order ordine = (await DriftOrderStore(db).allOrders()).single;
+    final Order order = (await DriftOrderStore(db).allOrders()).single;
 
-    expect(ordine.state, OrderState.aperto);
-    expect(ordine.stateRevision, const Revision.initial());
+    expect(order.state, OrderState.open);
+    expect(order.stateRevision, const Revision.initial());
   });
 
   test('le righe vecchie ricevono un identificativo, e sono distinte',
       () async {
     // Con l'id vuoto l'unione tratterebbe tutte le righe preesistenti come la
     // stessa riga, e alla prima sincronizzazione ne resterebbe una sola.
-    final Order ordine = (await DriftOrderStore(db).allOrders()).single;
-    final Set<String> ids = ordine.lines.map((OrderLine l) => l.id).toSet();
+    final Order order = (await DriftOrderStore(db).allOrders()).single;
+    final Set<String> ids = order.lines.map((OrderLine l) => l.id).toSet();
 
     expect(ids, hasLength(2), reason: 'due righe, due identificativi');
     expect(ids.any((String id) => id.isEmpty), isFalse);
@@ -149,42 +149,42 @@ void main() {
   test('la coda di uscita sopravvive: niente ordini persi', () async {
     // È la ragione per cui la migrazione è una migrazione e non una
     // ricreazione: qui dentro c'è un ordine che il server non ha ancora visto.
-    final List<OutboxEntry> coda = await DriftOrderStore(db).pendingOutbox();
+    final List<OutboxEntry> queue = await DriftOrderStore(db).pendingOutbox();
 
-    expect(coda, hasLength(1));
-    expect(coda.single.id, 'q-1');
-    expect(coda.single.orderId, 'o-1');
-    expect(coda.single.attempts, 0);
+    expect(queue, hasLength(1));
+    expect(queue.single.id, 'q-1');
+    expect(queue.single.orderId, 'o-1');
+    expect(queue.single.attempts, 0);
   });
 
   test('le tabelle nuove esistono e si usano', () async {
     final DriftOrderStore store = DriftOrderStore(db);
-    final Order ordine = (await store.allOrders()).single;
+    final Order order = (await store.allOrders()).single;
 
     await store.recordConflict(OrderConflict(
       id: 'c-1',
-      mine: ordine,
-      theirs: ordine.copyWith(state: OrderState.pagato),
+      mine: order,
+      theirs: order.copyWith(state: OrderState.paid),
       reason: 'prova',
       detectedAt: t0,
     ));
     expect((await store.openConflicts()).single.id, 'c-1');
 
-    final DriftDeviceStore dispositivo = DriftDeviceStore(db);
-    expect(await dispositivo.loadDeviceId(), isNotEmpty);
-    expect(await dispositivo.loadCounter(), 0);
+    final DriftDeviceStore device = DriftDeviceStore(db);
+    expect(await device.loadDeviceId(), isNotEmpty);
+    expect(await device.loadCounter(), 0);
   });
 
   test("l'identificativo del dispositivo non cambia fra due letture", () async {
     // È metà della revisione: un dispositivo che cambia nome a ogni avvio
     // renderebbe l'ordine totale una finzione.
-    final DriftDeviceStore dispositivo = DriftDeviceStore(db);
+    final DriftDeviceStore device = DriftDeviceStore(db);
 
-    final String primo = await dispositivo.loadDeviceId();
-    await dispositivo.saveCounter(12);
-    final String secondo = await DriftDeviceStore(db).loadDeviceId();
+    final String first = await device.loadDeviceId();
+    await device.saveCounter(12);
+    final String second = await DriftDeviceStore(db).loadDeviceId();
 
-    expect(secondo, primo);
+    expect(second, first);
     expect(await DriftDeviceStore(db).loadCounter(), 12);
   });
 }

@@ -19,8 +19,8 @@ import 'package:pos_sync/features/orders/presentation/table_number_dialog.dart';
 
 void main() {
   /// Monta un pulsante che apre la finestra e raccoglie ciò che restituisce.
-  Future<List<int?>> apri(WidgetTester tester, {int proposto = 3}) async {
-    final List<int?> risposte = <int?>[];
+  Future<List<int?>> open(WidgetTester tester, {int suggested = 3}) async {
+    final List<int?> answers = <int?>[];
 
     await tester.pumpWidget(
       MaterialApp(
@@ -28,31 +28,31 @@ void main() {
         home: Scaffold(
           body: Builder(
             builder: (BuildContext context) => TextButton(
-              key: const Key('apri'),
+              key: const Key('open-dialog'),
               onPressed: () async =>
-                  risposte.add(await chiediNumeroTavolo(context, proposto)),
-              child: const Text('apri'),
+                  answers.add(await askTableNumber(context, suggested)),
+              child: const Text('apri la finestra'),
             ),
           ),
         ),
       ),
     );
 
-    await tester.tap(find.byKey(const Key('apri')));
+    await tester.tap(find.byKey(const Key('open-dialog')));
     await tester.pumpAndSettle();
-    return risposte;
+    return answers;
   }
 
   testWidgets('propone il tavolo successivo, e confermarlo basta',
       (WidgetTester tester) async {
-    final List<int?> risposte = await apri(tester, proposto: 3);
+    final List<int?> answers = await open(tester, suggested: 3);
 
     expect(find.text('3'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('table-number-confirm')));
     await tester.pumpAndSettle();
 
-    expect(risposte, <int?>[3]);
+    expect(answers, <int?>[3]);
   });
 
   testWidgets('si può ripetere un tavolo già aperto',
@@ -60,46 +60,46 @@ void main() {
     // È il motivo per cui questa finestra esiste: con il numero incrementato
     // d'ufficio, due ordini sullo stesso tavolo non si potevano creare, e senza
     // quello non c'è niente da fondere e niente da mostrare.
-    final List<int?> risposte = await apri(tester, proposto: 3);
+    final List<int?> answers = await open(tester, suggested: 3);
 
     await tester.enterText(find.byKey(const Key('table-number-field')), '7');
     await tester.tap(find.byKey(const Key('table-number-confirm')));
     await tester.pumpAndSettle();
 
-    expect(risposte, <int?>[7]);
+    expect(answers, <int?>[7]);
   });
 
   testWidgets('annullare non crea niente', (WidgetTester tester) async {
-    final List<int?> risposte = await apri(tester);
+    final List<int?> answers = await open(tester);
 
     await tester.tap(find.byKey(const Key('table-number-cancel')));
     await tester.pumpAndSettle();
 
-    expect(risposte, <int?>[null]);
+    expect(answers, <int?>[null]);
   });
 
   testWidgets('un campo vuoto non crea niente', (WidgetTester tester) async {
     // Meglio non fare niente che inventare un numero: creare il tavolo
     // proposto quando chi guarda ha appena cancellato il campo sarebbe la
     // risposta sbagliata alla domanda che ha appena posto.
-    final List<int?> risposte = await apri(tester);
+    final List<int?> answers = await open(tester);
 
     await tester.enterText(find.byKey(const Key('table-number-field')), '');
     await tester.tap(find.byKey(const Key('table-number-confirm')));
     await tester.pumpAndSettle();
 
-    expect(risposte, <int?>[null]);
+    expect(answers, <int?>[null]);
   });
 
   testWidgets('confermare da tastiera equivale al pulsante',
       (WidgetTester tester) async {
-    final List<int?> risposte = await apri(tester);
+    final List<int?> answers = await open(tester);
 
     await tester.enterText(find.byKey(const Key('table-number-field')), '12');
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pumpAndSettle();
 
-    expect(risposte, <int?>[12]);
+    expect(answers, <int?>[12]);
   });
 
   testWidgets('la finestra si chiude fino in fondo senza cadere',
@@ -107,7 +107,7 @@ void main() {
     // La regressione. `pumpAndSettle` porta a termine l'animazione di uscita:
     // se il campo dipendesse da qualcosa liberato alla `pop`, il fotogramma
     // successivo solleverebbe un'eccezione e questo test fallirebbe.
-    await apri(tester);
+    await open(tester);
 
     await tester.tap(find.byKey(const Key('table-number-confirm')));
     await tester.pumpAndSettle();

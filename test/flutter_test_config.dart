@@ -21,34 +21,34 @@ import 'package:flutter_test/flutter_test.dart';
 /// prima dei test per questo motivo.
 Future<void> testExecutable(FutureOr<void> Function() testMain) async {
   TestWidgetsFlutterBinding.ensureInitialized();
-  await _registra('MaterialIcons', 'materialicons-regular.otf');
-  await _registra('Roboto', 'roboto-regular.ttf');
+  await _register('MaterialIcons', 'materialicons-regular.otf');
+  await _register('Roboto', 'roboto-regular.ttf');
   return testMain();
 }
 
-Future<void> _registra(String famiglia, String nomeFile) async {
-  final File file = _trova(nomeFile);
-  final FontLoader loader = FontLoader(famiglia)
+Future<void> _register(String family, String fileName) async {
+  final File file = _locate(fileName);
+  final FontLoader loader = FontLoader(family)
     ..addFont(
       Future<ByteData>.value(ByteData.sublistView(file.readAsBytesSync())),
     );
   await loader.load();
 }
 
-File _trova(String nomeFile) {
-  final String? radice = Platform.environment['FLUTTER_ROOT'];
-  if (radice == null) {
+File _locate(String fileName) {
+  final String? root = Platform.environment['FLUTTER_ROOT'];
+  if (root == null) {
     throw StateError(
       'FLUTTER_ROOT non è impostata: i font della suite non sono '
       'raggiungibili. Eseguire i test con `flutter test`, non con `dart test`.',
     );
   }
 
-  final Directory cartella =
-      Directory('$radice/bin/cache/artifacts/material_fonts');
-  if (!cartella.existsSync()) {
+  final Directory directory =
+      Directory('$root/bin/cache/artifacts/material_fonts');
+  if (!directory.existsSync()) {
     throw StateError(
-      'Cartella dei font assente: ${cartella.path}\n'
+      'Cartella dei font assente: ${directory.path}\n'
       'Gli artefatti dell SDK si scaricano su richiesta: eseguire '
       '`flutter precache` prima dei test.',
     );
@@ -57,23 +57,23 @@ File _trova(String nomeFile) {
   // Confronto senza distinzione di maiuscole: il nome dei file dentro
   // l'artefatto è cambiato fra le versioni dell'SDK, e su Windows la
   // differenza non si nota finché non si esegue la suite su Linux.
-  final List<File> file = cartella
+  final List<File> file = directory
       .listSync()
       .whereType<File>()
       .where((File f) =>
-          f.uri.pathSegments.last.toLowerCase() == nomeFile.toLowerCase())
+          f.uri.pathSegments.last.toLowerCase() == fileName.toLowerCase())
       .toList();
 
   if (file.isEmpty) {
     // L'elenco nel messaggio non è verbosità: se questo scatta, scatta su una
     // macchina a cui non si ha accesso, e la sola cosa utile è sapere cosa c'è
     // davvero in quella cartella.
-    final String presenti = cartella
+    final String available = directory
         .listSync()
         .map((FileSystemEntity e) => e.uri.pathSegments.last)
         .join(', ');
     throw StateError(
-      'Font "$nomeFile" non trovato in ${cartella.path}\nPresenti: $presenti',
+      'Font "$fileName" non trovato in ${directory.path}\nPresenti: $available',
     );
   }
 

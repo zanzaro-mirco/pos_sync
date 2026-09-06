@@ -21,33 +21,33 @@ import 'package:flutter/material.dart';
 /// Sta qui e non in `main.dart` perché è presentazione, e perché lì dentro non
 /// sarebbe raggiungibile da un test: questo bug è arrivato sul dispositivo
 /// esattamente per quel motivo.
-Future<int?> chiediNumeroTavolo(BuildContext context, int proposto) {
-  int? scelto = proposto;
+Future<int?> askTableNumber(BuildContext context, int suggested) {
+  int? chosen = suggested;
 
   return showDialog<int>(
     context: context,
-    builder: (BuildContext finestra) => AlertDialog(
+    builder: (BuildContext dialog) => AlertDialog(
       title: const Text('Numero del tavolo'),
       content: TextFormField(
         key: const Key('table-number-field'),
-        initialValue: '$proposto',
+        initialValue: '$suggested',
         autofocus: true,
         keyboardType: TextInputType.number,
         decoration: const InputDecoration(
           helperText: 'Si può ripetere un tavolo già aperto',
         ),
-        onChanged: (String v) => scelto = int.tryParse(v.trim()),
-        onFieldSubmitted: (String _) => Navigator.pop(finestra, scelto),
+        onChanged: (String v) => chosen = int.tryParse(v.trim()),
+        onFieldSubmitted: (String _) => Navigator.pop(dialog, chosen),
       ),
       actions: <Widget>[
         TextButton(
           key: const Key('table-number-cancel'),
-          onPressed: () => Navigator.pop(finestra),
+          onPressed: () => Navigator.pop(dialog),
           child: const Text('Annulla'),
         ),
         FilledButton(
           key: const Key('table-number-confirm'),
-          onPressed: () => Navigator.pop(finestra, scelto),
+          onPressed: () => Navigator.pop(dialog, chosen),
           child: const Text('Crea'),
         ),
       ],

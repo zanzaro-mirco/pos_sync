@@ -58,7 +58,7 @@ class _Home extends StatelessWidget {
   /// Una sola voce e sempre la stessa: qui non si sta costruendo un menu, si sta
   /// dando modo di mettere qualcosa su un tavolo per vedere cosa fa il sistema
   /// quando due dispositivi lo fanno insieme.
-  static const List<OrderLineDraft> _comanda = <OrderLineDraft>[
+  static const List<OrderLineDraft> _defaultLines = <OrderLineDraft>[
     OrderLineDraft(
       productId: 'p-01',
       description: 'Caffè',
@@ -72,14 +72,14 @@ class _Home extends StatelessWidget {
     final OrdersCubit cubit = context.read<OrdersCubit>();
 
     return OrdersPage(
-      onAddOrder: (int proposto) async {
-        final int? tavolo = await chiediNumeroTavolo(context, proposto);
-        if (tavolo != null) {
-          await cubit.addOrder(tableNumber: tavolo, lines: _comanda);
+      onAddOrder: (int suggested) async {
+        final int? table = await askTableNumber(context, suggested);
+        if (table != null) {
+          await cubit.addOrder(tableNumber: table, lines: _defaultLines);
         }
       },
       onAddLine: (Order order) =>
-          cubit.addLines(orderId: order.id, lines: _comanda),
+          cubit.addLines(orderId: order.id, lines: _defaultLines),
       // In una build non dimostrativa il secondo dispositivo non è registrato,
       // la voce non compare, e la pagina non deve saperne niente.
       onOtherDevicePays:

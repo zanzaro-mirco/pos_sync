@@ -12,20 +12,20 @@ import 'package:pos_sync/features/orders/presentation/orders_cubit.dart';
 import 'package:pos_sync/features/orders/presentation/orders_page.dart';
 import 'package:pos_sync/features/orders/presentation/orders_state.dart';
 
-import 'helpers/cubit_preimpostato.dart';
+import 'helpers/preset_cubit.dart';
 
 void main() {
-  Order ordine(
-    int tavolo, {
-    SyncStatus stato = SyncStatus.pending,
-    OrderState tavoloStato = OrderState.aperto,
+  Order order(
+    int table, {
+    SyncStatus state = SyncStatus.pending,
+    OrderState tableState = OrderState.open,
   }) =>
       Order(
-        id: 'id-$tavolo',
-        tableNumber: tavolo,
+        id: 'id-$table',
+        tableNumber: table,
         createdAt: DateTime(2026, 7, 27, 12),
-        status: stato,
-        state: tavoloStato,
+        status: state,
+        state: tableState,
         lines: const <OrderLine>[
           OrderLine(
             id: 'r-01',
@@ -39,14 +39,14 @@ void main() {
 
   /// Monta la pagina sullo stato dato e restituisce il cubit, per poterci
   /// asserire sopra dopo aver toccato l'interfaccia.
-  Future<CubitPreimpostato> mostra(
+  Future<PresetCubit> show(
     WidgetTester tester,
-    OrdersState stato, {
+    OrdersState state, {
     void Function(int tableNumber)? onAddOrder,
     void Function(Order order)? onAddLine,
     void Function(Order order)? onOtherDevicePays,
   }) async {
-    final CubitPreimpostato cubit = CubitPreimpostato(stato);
+    final PresetCubit cubit = PresetCubit(state);
     addTearDown(cubit.close);
     await tester.pumpWidget(
       MaterialApp(
@@ -69,7 +69,7 @@ void main() {
   group('OrdersPage · i tre stati', () {
     testWidgets('in caricamento mostra l indicatore e nessuna lista',
         (WidgetTester tester) async {
-      await mostra(tester, const OrdersState());
+      await show(tester, const OrdersState());
 
       expect(find.byKey(const Key('loading-indicator')), findsOneWidget);
       expect(find.byType(OrderTile), findsNothing);
@@ -78,7 +78,7 @@ void main() {
 
     testWidgets('senza ordini dice che non ce ne sono',
         (WidgetTester tester) async {
-      await mostra(tester, const OrdersState(status: OrdersStatus.ready));
+      await show(tester, const OrdersState(status: OrdersStatus.ready));
 
       expect(find.byKey(const Key('empty-text')), findsOneWidget);
       expect(find.text('Nessun ordine'), findsOneWidget);
@@ -90,11 +90,11 @@ void main() {
 
     testWidgets('con ordini li elenca con totale e numero di articoli',
         (WidgetTester tester) async {
-      await mostra(
+      await show(
         tester,
         OrdersState(
           status: OrdersStatus.ready,
-          orders: <Order>[ordine(1), ordine(2), ordine(3)],
+          orders: <Order>[order(1), order(2), order(3)],
         ),
       );
 
@@ -107,7 +107,7 @@ void main() {
 
     testWidgets('in errore mostra il messaggio, non una lista vuota',
         (WidgetTester tester) async {
-      await mostra(
+      await show(
         tester,
         const OrdersState(
           status: OrdersStatus.error,
@@ -124,7 +124,7 @@ void main() {
 
     testWidgets('in errore senza messaggio non lascia la schermata muta',
         (WidgetTester tester) async {
-      await mostra(tester, const OrdersState(status: OrdersStatus.error));
+      await show(tester, const OrdersState(status: OrdersStatus.error));
 
       expect(find.text('Errore'), findsOneWidget);
     });
@@ -133,10 +133,10 @@ void main() {
   group('OrdersPage · la barra superiore', () {
     testWidgets('il contatore appare solo se c è qualcosa da inviare',
         (WidgetTester tester) async {
-      await mostra(tester, const OrdersState(status: OrdersStatus.ready));
+      await show(tester, const OrdersState(status: OrdersStatus.ready));
       expect(find.byKey(const Key('pending-badge')), findsNothing);
 
-      await mostra(
+      await show(
         tester,
         const OrdersState(status: OrdersStatus.ready, pending: 3),
       );
@@ -146,55 +146,55 @@ void main() {
 
     testWidgets('il pulsante di sincronizzazione arriva al cubit',
         (WidgetTester tester) async {
-      final CubitPreimpostato cubit =
-          await mostra(tester, const OrdersState(status: OrdersStatus.ready));
+      final PresetCubit cubit =
+          await show(tester, const OrdersState(status: OrdersStatus.ready));
 
       await tester.tap(find.byKey(const Key('sync-button')));
       await tester.pump();
 
-      expect(cubit.sincronizzazioni, 1);
+      expect(cubit.syncs, 1);
     });
 
     testWidgets('il pulsante di creazione propone il tavolo successivo',
         (WidgetTester tester) async {
-      final List<int> richiesti = <int>[];
-      await mostra(
+      final List<int> requested = <int>[];
+      await show(
         tester,
         OrdersState(
           status: OrdersStatus.ready,
-          orders: <Order>[ordine(1), ordine(2)],
+          orders: <Order>[order(1), order(2)],
         ),
-        onAddOrder: richiesti.add,
+        onAddOrder: requested.add,
       );
 
       await tester.tap(find.byKey(const Key('add-order')));
       await tester.pump();
 
-      expect(richiesti, <int>[3]);
+      expect(requested, <int>[3]);
     });
   });
 
   group('OrdersPage · gli stati di sincronizzazione', () {
     testWidgets('ogni ordine mostra l icona del proprio stato',
         (WidgetTester tester) async {
-      await mostra(
+      await show(
         tester,
         OrdersState(
           status: OrdersStatus.ready,
           orders: <Order>[
-            ordine(1),
-            ordine(2, stato: SyncStatus.sending),
-            ordine(3, stato: SyncStatus.synced),
-            ordine(4, stato: SyncStatus.failed),
+            order(1),
+            order(2, state: SyncStatus.sending),
+            order(3, state: SyncStatus.synced),
+            order(4, state: SyncStatus.failed),
           ],
         ),
       );
 
-      for (final SyncStatus stato in SyncStatus.values) {
+      for (final SyncStatus state in SyncStatus.values) {
         expect(
-          find.byKey(Key('status-${stato.name}')),
+          find.byKey(Key('status-${state.name}')),
           findsOneWidget,
-          reason: 'manca l indicatore per ${stato.name}',
+          reason: 'manca l indicatore per ${state.name}',
         );
       }
     });
@@ -206,15 +206,15 @@ void main() {
       // controllo che verifica che non ne sia rimasto nessuno attivo.
       final SemanticsHandle handle = tester.ensureSemantics();
 
-      await mostra(
+      await show(
         tester,
         OrdersState(
           status: OrdersStatus.ready,
           orders: <Order>[
-            ordine(1),
-            ordine(2, stato: SyncStatus.sending),
-            ordine(3, stato: SyncStatus.synced),
-            ordine(4, stato: SyncStatus.failed),
+            order(1),
+            order(2, state: SyncStatus.sending),
+            order(3, state: SyncStatus.synced),
+            order(4, state: SyncStatus.failed),
           ],
         ),
       );
@@ -227,16 +227,16 @@ void main() {
       // inviare, Tavolo 1, 2 articoli, 2.40 €" — ed è il comportamento
       // giusto, quattro nodi separati per riga sarebbero più lenti da
       // navigare, non più chiari.
-      for (final String etichetta in <String>[
+      for (final String label in <String>[
         'Da inviare',
         'Invio in corso',
         'Sincronizzato',
         'Invio fallito',
       ]) {
         expect(
-          find.bySemanticsLabel(RegExp(etichetta)),
+          find.bySemanticsLabel(RegExp(label)),
           findsOneWidget,
-          reason: 'nessuna riga annuncia "$etichetta"',
+          reason: 'nessuna riga annuncia "$label"',
         );
       }
 
@@ -245,26 +245,26 @@ void main() {
   });
 
   group('OrdersPage · i conflitti', () {
-    OrderConflict conflitto(String id, {int tavolo = 7}) => OrderConflict(
+    OrderConflict conflict(String id, {int table = 7}) => OrderConflict(
           id: id,
-          mine: ordine(tavolo).copyWith(state: OrderState.pagato),
-          theirs: ordine(tavolo),
-          reason: 'Il tavolo $tavolo risulta pagato, ma 1 articolo non era '
+          mine: order(table).copyWith(state: OrderState.paid),
+          theirs: order(table),
+          reason: 'Il tavolo $table risulta pagato, ma 1 articolo non era '
               'nel conto',
           detectedAt: DateTime(2026, 9, 5, 20),
         );
 
-    OrdersState conConflitti(List<OrderConflict> conflitti) => OrdersState(
+    OrdersState withConflicts(List<OrderConflict> conflicts) => OrdersState(
           status: OrdersStatus.ready,
-          orders: <Order>[ordine(7)],
-          conflicts: conflitti,
+          orders: <Order>[order(7)],
+          conflicts: conflicts,
         );
 
     testWidgets('senza conflitti non c è nessun avviso',
         (WidgetTester tester) async {
-      await mostra(
+      await show(
         tester,
-        OrdersState(status: OrdersStatus.ready, orders: <Order>[ordine(7)]),
+        OrdersState(status: OrdersStatus.ready, orders: <Order>[order(7)]),
       );
 
       expect(find.byKey(const Key('conflict-badge')), findsNothing);
@@ -273,14 +273,14 @@ void main() {
 
     testWidgets('il contatore compare accanto a quello delle pendenze',
         (WidgetTester tester) async {
-      await mostra(tester, conConflitti(<OrderConflict>[conflitto('c-1')]));
+      await show(tester, withConflicts(<OrderConflict>[conflict('c-1')]));
 
       expect(find.byKey(const Key('conflict-badge')), findsOneWidget);
     });
 
     testWidgets('la scheda spiega il problema e mostra le due versioni',
         (WidgetTester tester) async {
-      await mostra(tester, conConflitti(<OrderConflict>[conflitto('c-1')]));
+      await show(tester, withConflicts(<OrderConflict>[conflict('c-1')]));
 
       expect(find.byKey(const Key('conflict-c-1')), findsOneWidget);
       expect(
@@ -297,18 +297,18 @@ void main() {
         (WidgetTester tester) async {
       // In fondo alla lista non li vedrebbe nessuno, ed è l'unica cosa in
       // questa schermata che chiede di fare qualcosa.
-      await mostra(tester, conConflitti(<OrderConflict>[conflitto('c-1')]));
+      await show(tester, withConflicts(<OrderConflict>[conflict('c-1')]));
 
-      final double schedaY = tester.getTopLeft(find.byType(ConflictCard)).dy;
-      final double ordineY = tester.getTopLeft(find.byType(OrderTile)).dy;
-      expect(schedaY, lessThan(ordineY));
+      final double cardY = tester.getTopLeft(find.byType(ConflictCard)).dy;
+      final double tileY = tester.getTopLeft(find.byType(OrderTile)).dy;
+      expect(cardY, lessThan(tileY));
     });
 
     testWidgets('i due pulsanti arrivano al cubit con la scelta giusta',
         (WidgetTester tester) async {
-      final CubitPreimpostato cubit = await mostra(
+      final PresetCubit cubit = await show(
         tester,
-        conConflitti(<OrderConflict>[conflitto('c-1')]),
+        withConflicts(<OrderConflict>[conflict('c-1')]),
       );
 
       await tester.tap(find.byKey(const Key('conflict-mine-c-1')));
@@ -316,7 +316,7 @@ void main() {
       await tester.tap(find.byKey(const Key('conflict-theirs-c-1')));
       await tester.pump();
 
-      expect(cubit.conflittiRisolti, <(String, ConflictChoice)>[
+      expect(cubit.resolvedConflicts, <(String, ConflictChoice)>[
         ('c-1', ConflictChoice.mine),
         ('c-1', ConflictChoice.theirs),
       ]);
@@ -326,7 +326,7 @@ void main() {
         (WidgetTester tester) async {
       // «Tieni la mia» costringe chi decide a ricostruire quale sia la propria
       // e cosa comporti; qui la conseguenza è scritta sul pulsante.
-      await mostra(tester, conConflitti(<OrderConflict>[conflitto('c-1')]));
+      await show(tester, withConflicts(<OrderConflict>[conflict('c-1')]));
 
       expect(find.text('Tieni il pagamento'), findsOneWidget);
       expect(find.text('Tieni il tavolo aperto'), findsOneWidget);
@@ -334,11 +334,11 @@ void main() {
 
     testWidgets('un conflitto si vede anche senza ordini in lista',
         (WidgetTester tester) async {
-      await mostra(
+      await show(
         tester,
         OrdersState(
           status: OrdersStatus.ready,
-          conflicts: <OrderConflict>[conflitto('c-1')],
+          conflicts: <OrderConflict>[conflict('c-1')],
         ),
       );
 
@@ -348,20 +348,20 @@ void main() {
   });
 
   group('OrdersPage · le azioni su un tavolo', () {
-    OrdersState conTavolo(OrderState stato) => OrdersState(
+    OrdersState withTable(OrderState state) => OrdersState(
           status: OrdersStatus.ready,
-          orders: <Order>[ordine(7, tavoloStato: stato)],
+          orders: <Order>[order(7, tableState: state)],
         );
 
-    Future<CubitPreimpostato> apriIlFoglio(
+    Future<PresetCubit> openSheet(
       WidgetTester tester,
-      OrdersState stato, {
+      OrdersState state, {
       void Function(Order order)? onAddLine,
       void Function(Order order)? onOtherDevicePays,
     }) async {
-      final CubitPreimpostato cubit = await mostra(
+      final PresetCubit cubit = await show(
         tester,
-        stato,
+        state,
         onAddLine: onAddLine,
         onOtherDevicePays: onOtherDevicePays,
       );
@@ -372,21 +372,21 @@ void main() {
 
     testWidgets('lo stato del tavolo si legge solo quando non è aperto',
         (WidgetTester tester) async {
-      // `aperto` è la normalità: scriverlo su ogni riga riempirebbe la lista
+      // `open` è la normalità: scriverlo su ogni riga riempirebbe la lista
       // di una parola che non distingue niente.
-      await mostra(tester, conTavolo(OrderState.aperto));
+      await show(tester, withTable(OrderState.open));
       expect(find.text('2 articoli'), findsOneWidget);
 
-      await mostra(tester, conTavolo(OrderState.pagato));
+      await show(tester, withTable(OrderState.paid));
       expect(find.text('2 articoli · pagato'), findsOneWidget);
     });
 
     testWidgets('toccare la riga apre le azioni sul tavolo',
         (WidgetTester tester) async {
-      await apriIlFoglio(tester, conTavolo(OrderState.aperto));
+      await openSheet(tester, withTable(OrderState.open));
 
-      expect(find.byKey(const Key('action-servito')), findsOneWidget);
-      expect(find.byKey(const Key('action-pagato')), findsOneWidget);
+      expect(find.byKey(const Key('action-served')), findsOneWidget);
+      expect(find.byKey(const Key('action-paid')), findsOneWidget);
       expect(find.byKey(const Key('action-add-line')), findsOneWidget);
     });
 
@@ -394,16 +394,16 @@ void main() {
         (WidgetTester tester) async {
       // Una voce che non farebbe niente occupa spazio e va letta per
       // scoprirlo.
-      await apriIlFoglio(tester, conTavolo(OrderState.pagato));
+      await openSheet(tester, withTable(OrderState.paid));
 
-      expect(find.byKey(const Key('action-pagato')), findsNothing);
-      expect(find.byKey(const Key('action-aperto')), findsOneWidget);
+      expect(find.byKey(const Key('action-paid')), findsNothing);
+      expect(find.byKey(const Key('action-open')), findsOneWidget);
       expect(find.text('Riapri il tavolo'), findsOneWidget);
     });
 
     testWidgets('le voci dicono cosa succede, non quale campo cambia',
         (WidgetTester tester) async {
-      await apriIlFoglio(tester, conTavolo(OrderState.aperto));
+      await openSheet(tester, withTable(OrderState.open));
 
       expect(find.text('Segna servito'), findsOneWidget);
       expect(find.text('Segna pagato'), findsOneWidget);
@@ -411,15 +411,15 @@ void main() {
 
     testWidgets('cambiare stato arriva al cubit e chiude il foglio',
         (WidgetTester tester) async {
-      final CubitPreimpostato cubit =
-          await apriIlFoglio(tester, conTavolo(OrderState.aperto));
+      final PresetCubit cubit =
+          await openSheet(tester, withTable(OrderState.open));
 
-      await tester.tap(find.byKey(const Key('action-pagato')));
+      await tester.tap(find.byKey(const Key('action-paid')));
       await tester.pumpAndSettle();
 
-      expect(cubit.statiCambiati,
-          <(String, OrderState)>[('id-7', OrderState.pagato)]);
-      expect(find.byKey(const Key('action-pagato')), findsNothing,
+      expect(cubit.changedStates,
+          <(String, OrderState)>[('id-7', OrderState.paid)]);
+      expect(find.byKey(const Key('action-paid')), findsNothing,
           reason: 'il foglio deve chiudersi dopo la scelta');
     });
 
@@ -427,42 +427,42 @@ void main() {
         (WidgetTester tester) async {
       // La pagina offre l'azione ma non decide cosa ci sia dentro una
       // comanda, esattamente come per la creazione di un ordine.
-      final List<String> richieste = <String>[];
-      await apriIlFoglio(
+      final List<String> requests = <String>[];
+      await openSheet(
         tester,
-        conTavolo(OrderState.aperto),
-        onAddLine: (Order o) => richieste.add(o.id),
+        withTable(OrderState.open),
+        onAddLine: (Order o) => requests.add(o.id),
       );
 
       await tester.tap(find.byKey(const Key('action-add-line')));
       await tester.pumpAndSettle();
 
-      expect(richieste, <String>['id-7']);
+      expect(requests, <String>['id-7']);
     });
 
     testWidgets('senza secondo dispositivo la voce dimostrativa non c\'è',
         (WidgetTester tester) async {
       // Una build collegata a un backend vero passa `null` e la voce sparisce,
       // senza che la pagina debba sapere il perché.
-      await apriIlFoglio(tester, conTavolo(OrderState.aperto));
+      await openSheet(tester, withTable(OrderState.open));
 
       expect(find.byKey(const Key('action-other-device')), findsNothing);
     });
 
     testWidgets('con il secondo dispositivo la voce c\'è e avverte del seguito',
         (WidgetTester tester) async {
-      final List<String> incassati = <String>[];
-      await apriIlFoglio(
+      final List<String> paidTables = <String>[];
+      await openSheet(
         tester,
-        conTavolo(OrderState.aperto),
-        onOtherDevicePays: (Order o) => incassati.add(o.id),
+        withTable(OrderState.open),
+        onOtherDevicePays: (Order o) => paidTables.add(o.id),
       );
 
       expect(find.byKey(const Key('action-other-device')), findsOneWidget);
       await tester.tap(find.byKey(const Key('action-other-device')));
       await tester.pumpAndSettle();
 
-      expect(incassati, <String>['id-7']);
+      expect(paidTables, <String>['id-7']);
       // Da sola l'azione non mostra niente: il conflitto nasce alla comanda
       // successiva, e chi sta dimostrando deve sapere che manca un passo.
       expect(find.textContaining('Aggiungi una comanda'), findsOneWidget);
