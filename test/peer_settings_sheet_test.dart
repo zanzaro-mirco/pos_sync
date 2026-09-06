@@ -7,6 +7,7 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pos_sync/features/orders/lan/lan_protocol.dart';
 import 'package:pos_sync/features/orders/lan/peer_settings.dart';
 import 'package:pos_sync/features/orders/presentation/peer_settings_sheet.dart';
 
@@ -55,7 +56,26 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('peer-host-field')), findsOneWidget);
-    expect(find.byKey(const Key('peer-port-field')), findsOneWidget);
+  });
+
+  testWidgets('la porta non si digita in nessun ruolo',
+      (WidgetTester tester) async {
+    // Vale `lanPort` su entrambi i lati, quindi non c'è niente da concordare.
+    // Chiederla darebbe solo il modo di scriverne una diversa su un tablet
+    // solo, e il guasto si presenterebbe come «non arriva niente».
+    final List<PeerSettings> saved = await show(tester);
+
+    for (final PeerRole role in PeerRole.values) {
+      await tester.tap(find.byKey(Key('peer-role-${peerRoleName(role)}')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('peer-port-field')), findsNothing,
+          reason: 'nessun ruolo deve poter cambiare la porta');
+    }
+
+    await tester.tap(find.byKey(const Key('peer-save')));
+    await tester.pumpAndSettle();
+
+    expect(saved.single.primaryPort, lanPort);
   });
 
   testWidgets('la cassa mostra il proprio indirizzo, che è quello da digitare',
@@ -71,7 +91,7 @@ void main() {
     expect(find.textContaining('192.168.1.7'), findsOneWidget);
   });
 
-  testWidgets('salvare restituisce ruolo, indirizzo e porta',
+  testWidgets('salvare restituisce ruolo e indirizzo',
       (WidgetTester tester) async {
     final List<PeerSettings> saved = await show(tester);
 
@@ -79,7 +99,6 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(
         find.byKey(const Key('peer-host-field')), ' 192.168.1.7 ');
-    await tester.enterText(find.byKey(const Key('peer-port-field')), '6000');
     await tester.tap(find.byKey(const Key('peer-save')));
     await tester.pumpAndSettle();
 
@@ -87,26 +106,26 @@ void main() {
     expect(saved.single.role, PeerRole.follower);
     expect(saved.single.primaryHost, '192.168.1.7',
         reason: 'gli spazi intorno a un indirizzo copiato non devono contare');
-    expect(saved.single.primaryPort, 6000);
   });
 
-  testWidgets('una porta illeggibile non cancella quella che c\'era',
+  testWidgets('una porta già impostata si riporta, non si riscrive',
       (WidgetTester tester) async {
-    // Svuotare il campo e salvare non deve mandare il dispositivo a parlare
-    // sulla porta zero: si tiene ciò che c'era.
+    // Questo foglio non modifica la porta, ma nemmeno la azzera: riscriverla
+    // con il valore predefinito cancellerebbe in silenzio l'unico caso in cui
+    // è diversa.
     final List<PeerSettings> saved = await show(
       tester,
       initial: const PeerSettings(
         role: PeerRole.follower,
         primaryHost: '192.168.1.7',
+        primaryPort: 6000,
       ),
     );
 
-    await tester.enterText(find.byKey(const Key('peer-port-field')), 'porta');
     await tester.tap(find.byKey(const Key('peer-save')));
     await tester.pumpAndSettle();
 
-    expect(saved.single.primaryPort, const PeerSettings().primaryPort);
+    expect(saved.single.primaryPort, 6000);
   });
 
   testWidgets('annullare non salva niente', (WidgetTester tester) async {
@@ -134,6 +153,5 @@ void main() {
     expect(find.byKey(const Key('peer-host-field')), findsOneWidget,
         reason: 'il ruolo salvato decide cosa si vede all\'apertura');
     expect(find.text('10.0.0.4'), findsOneWidget);
-    expect(find.text('6000'), findsOneWidget);
   });
 }

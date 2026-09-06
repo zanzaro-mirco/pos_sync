@@ -11,6 +11,12 @@ import '../lan/peer_settings.dart';
 ///
 /// L'indirizzo della cassa compare solo quando serve. Un campo sempre presente
 /// e quasi sempre da ignorare è un invito a compilarlo per sbaglio.
+///
+/// La porta non si chiede affatto: vale `lanPort` su entrambi i lati e nessuno
+/// deve impararla dall'altro. Chiederla darebbe a chi installa l'app un modo
+/// di rompere la sincronizzazione scrivendo un numero diverso su un tablet
+/// solo — e il guasto si manifesterebbe come «non arriva niente», che è il
+/// sintomo meno diagnosticabile di tutti.
 class PeerSettingsSheet extends StatefulWidget {
   const PeerSettingsSheet({
     super.key,
@@ -38,21 +44,21 @@ class _PeerSettingsSheetState extends State<PeerSettingsSheet> {
   // uscita, e `dispose()` è chiamato al momento giusto per costruzione.
   late final TextEditingController _host =
       TextEditingController(text: widget.initial.primaryHost);
-  late final TextEditingController _port =
-      TextEditingController(text: '${widget.initial.primaryPort}');
 
   @override
   void dispose() {
     _host.dispose();
-    _port.dispose();
     super.dispose();
   }
 
+  // La porta si riporta com'era invece di essere ricalcolata: è un dato che
+  // questo foglio non modifica, e riscriverlo con il valore predefinito
+  // cancellerebbe in silenzio l'unico caso in cui è diverso — un test che
+  // l'aveva impostata.
   PeerSettings get _chosen => PeerSettings(
         role: _role,
         primaryHost: _host.text.trim(),
-        primaryPort:
-            int.tryParse(_port.text.trim()) ?? widget.initial.primaryPort,
+        primaryPort: widget.initial.primaryPort,
       );
 
   @override
@@ -112,31 +118,14 @@ class _PeerSettingsSheetState extends State<PeerSettingsSheet> {
             if (_role == PeerRole.follower)
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Expanded(
-                      flex: 3,
-                      child: TextField(
-                        key: const Key('peer-host-field'),
-                        controller: _host,
-                        keyboardType: TextInputType.url,
-                        decoration: const InputDecoration(
-                          labelText: 'Indirizzo della cassa',
-                          hintText: '192.168.1.7',
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextField(
-                        key: const Key('peer-port-field'),
-                        controller: _port,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(labelText: 'Porta'),
-                      ),
-                    ),
-                  ],
+                child: TextField(
+                  key: const Key('peer-host-field'),
+                  controller: _host,
+                  keyboardType: TextInputType.url,
+                  decoration: const InputDecoration(
+                    labelText: 'Indirizzo della cassa',
+                    hintText: '192.168.1.7',
+                  ),
                 ),
               ),
             Padding(

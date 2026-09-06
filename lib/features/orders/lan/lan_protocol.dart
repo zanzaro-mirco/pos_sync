@@ -7,11 +7,20 @@ library;
 
 /// Porta su cui il dispositivo primario ascolta.
 ///
-/// Fissa e non configurabile: sopra 49152 sta l'intervallo effimero, che il
-/// sistema assegna a chi non chiede una porta precisa, quindi non c'è il
-/// rischio di litigare con un servizio noto. Renderla configurabile
-/// aggiungerebbe un campo alle impostazioni e una cosa in più da sbagliare in
-/// sala, per risolvere un problema che in una rete di ristorante non si pone.
+/// Sopra 49152 sta l'intervallo effimero, quello che il sistema assegna a chi
+/// non chiede una porta precisa: non c'è il rischio di litigare con un
+/// servizio noto.
+///
+/// **Non si chiede a chi installa l'app.** Vale questo numero su entrambi i
+/// lati, quindi nessuno deve impararlo dall'altro — come la 80 di HTTP, che si
+/// scrive solo quando è diversa. Un campo nelle impostazioni non risolverebbe
+/// nessun problema che in una rete di ristorante si ponga, e ne creerebbe uno
+/// nuovo: basta sbagliarla su un tablet solo perché quel tablet non trovi più
+/// la cassa, senza nessun errore da mostrare.
+///
+/// Resta un parametro nel codice per una ragione sola: i test chiedono la
+/// porta `0`, cioè «una libera qualsiasi», e senza di essa due casi in
+/// sequenza si contenderebbero la stessa.
 const int lanPort = 53170;
 
 /// Percorso delle versioni: `GET` per leggere quelle altrui, `POST` per
