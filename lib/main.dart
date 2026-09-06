@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'core/di.dart';
+import 'features/orders/data/demo_reset.dart';
 import 'features/orders/data/second_device.dart';
+import 'features/orders/lan/lan_check.dart';
 import 'features/orders/lan/lan_coordinator.dart';
 import 'features/orders/lan/local_address.dart';
 import 'features/orders/lan/peer_settings.dart';
@@ -89,6 +91,7 @@ class _Home extends StatelessWidget {
       builder: (BuildContext sheet) => PeerSettingsSheet(
         initial: current,
         localAddresses: addresses,
+        onCheck: (PeerSettings chosen) => sl<LanChecker>().check(chosen),
         onSave: (PeerSettings chosen) async {
           await store.save(chosen);
           // Una sincronizzazione subito: il coordinatore rilegge il ruolo alla
@@ -120,6 +123,8 @@ class _Home extends StatelessWidget {
       onOpenSettings: sl.isRegistered<LanCoordinator>()
           ? () => _openSettings(context, cubit)
           : null,
+      onResetOrders:
+          sl.isRegistered<DemoReset>() ? sl<DemoReset>().clearEverything : null,
     );
   }
 }

@@ -17,6 +17,7 @@ class OrdersPage extends StatelessWidget {
     required this.onAddLine,
     this.onOtherDevicePays,
     this.onOpenSettings,
+    this.onResetOrders,
   });
 
   /// Cosa fare quando si crea un ordine.
@@ -46,6 +47,15 @@ class OrdersPage extends StatelessWidget {
   /// Nullable come [onOtherDevicePays] e per la stessa ragione: la pagina non
   /// deve sapere se questo dispositivo può fare parte di una rete di sala.
   final VoidCallback? onOpenSettings;
+
+  /// Svuota gli ordini di questo dispositivo, se questa build lo permette.
+  ///
+  /// Nullable, e in un locale vero è `null`: cancellare il servizio di una
+  /// serata non è un'azione che si offre a chi prende le comande. Restituisce
+  /// quanti ordini ha tolto, perché un'azione distruttiva deve dire cosa ha
+  /// fatto — «fatto» non distingue «ne ho cancellati dodici» da «non c'era
+  /// niente».
+  final Future<int> Function()? onResetOrders;
 
   /// Le azioni su un tavolo, in un foglio che sale dal basso.
   ///
@@ -126,6 +136,52 @@ class OrdersPage extends StatelessWidget {
     );
   }
 
+  /// Chiede conferma, poi svuota.
+  ///
+  /// La conferma non è cerimonia: è l'unica azione dell'app che **toglie**
+  /// qualcosa, e il testo dice cosa succede davvero — compreso il fatto che
+  /// farlo su un dispositivo solo non basta, perché il registro dell'altro
+  /// rimanda indietro le proprie versioni al primo giro.
+  Future<void> _confirmReset(BuildContext context) async {
+    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+    final bool? yes = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialog) => AlertDialog(
+        title: const Text('Svuotare gli ordini?'),
+        content: const Text(
+          'Cancella gli ordini di questo dispositivo, la coda di invio e i '
+          'conflitti aperti. Se stai provando in due, fallo su entrambi: '
+          "altrimenti gli ordini dell'altro tornano alla prima "
+          'sincronizzazione.',
+        ),
+        actions: <Widget>[
+          TextButton(
+            key: const Key('reset-cancel'),
+            onPressed: () => Navigator.pop(dialog, false),
+            child: const Text('Annulla'),
+          ),
+          FilledButton(
+            key: const Key('reset-confirm'),
+            onPressed: () => Navigator.pop(dialog, true),
+            child: const Text('Svuota'),
+          ),
+        ],
+      ),
+    );
+    if (yes != true) return;
+
+    final int removed = await onResetOrders!();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          removed == 0
+              ? 'Non c\'era niente da svuotare.'
+              : 'Svuotati $removed ordini.',
+        ),
+      ),
+    );
+  }
+
   static IconData _actionIcon(OrderState state) => switch (state) {
         OrderState.open => Icons.lock_open,
         OrderState.served => Icons.room_service,
@@ -178,6 +234,24 @@ class OrdersPage extends StatelessWidget {
                   icon: const Icon(Icons.lan),
                   tooltip: 'Rete locale',
                   onPressed: onOpenSettings,
+                ),
+              // In un menu e non come icona a sé: è l'unica azione che toglie
+              // qualcosa, e in barra starebbe a un dito di distanza da
+              // «sincronizza».
+              if (onResetOrders != null)
+                PopupMenuButton<void>(
+                  key: const Key('overflow-menu'),
+                  itemBuilder: (BuildContext menu) => <PopupMenuEntry<void>>[
+                    PopupMenuItem<void>(
+                      key: const Key('reset-orders'),
+                      onTap: () => _confirmReset(context),
+                      child: const ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.delete_sweep),
+                        title: Text('Svuota gli ordini'),
+                      ),
+                    ),
+                  ],
                 ),
             ],
           ),

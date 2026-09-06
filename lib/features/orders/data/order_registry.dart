@@ -29,4 +29,19 @@ abstract interface class OrderRegistry {
 
   /// Tutte le versioni conosciute, appiattite.
   List<Order> allVersions();
+
+  /// I dispositivi che hanno depositato almeno una versione qui.
+  ///
+  /// È la sola prova che due tablet **si sono parlati davvero**: una porta
+  /// aperta dice che il servizio c'è, non che qualcuno ci abbia scritto. Serve
+  /// alla diagnostica, non alla sincronizzazione.
+  Set<String> senders();
+
+  /// Dimentica tutto.
+  ///
+  /// Esiste per la modalità dimostrativa: senza, rifare la prova a due
+  /// dispositivi richiede di disinstallare l'app. Sulla cassa svuota il
+  /// registro condiviso, che è il solo posto da cui gli ordini altrui possono
+  /// tornare indietro.
+  void clear();
 }

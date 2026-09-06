@@ -7,6 +7,8 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pos_sync/features/orders/lan/lan_check.dart';
+import 'package:pos_sync/features/orders/lan/peer_discovery.dart';
 import 'package:pos_sync/features/orders/lan/lan_protocol.dart';
 import 'package:pos_sync/features/orders/lan/peer_settings.dart';
 import 'package:pos_sync/features/orders/presentation/peer_settings_sheet.dart';
@@ -17,6 +19,7 @@ void main() {
     WidgetTester tester, {
     PeerSettings initial = const PeerSettings(),
     List<String> addresses = const <String>[],
+    Future<LanCheck> Function(PeerSettings)? onCheck,
   }) async {
     final List<PeerSettings> saved = <PeerSettings>[];
     await tester.pumpWidget(
@@ -27,6 +30,7 @@ void main() {
             initial: initial,
             localAddresses: addresses,
             onSave: saved.add,
+            onCheck: onCheck,
           ),
         ),
       ),
@@ -126,6 +130,96 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(saved.single.primaryPort, 6000);
+  });
+
+  group('la prova del collegamento', () {
+    testWidgets('non compare se questa build non ha niente da provare',
+        (WidgetTester tester) async {
+      await show(tester);
+      expect(find.byKey(const Key('peer-check')), findsNothing);
+    });
+
+    testWidgets('riferisce chi ha risposto', (WidgetTester tester) async {
+      // «Risponde qualcuno» non basta: dopo un'elezione all'indirizzo noto può
+      // rispondere un dispositivo diverso.
+      await show(
+        tester,
+        initial: const PeerSettings(
+          role: PeerRole.follower,
+          primaryHost: '192.168.1.7',
+        ),
+        onCheck: (PeerSettings s) async => const LanCheck(
+          primary: 'tablet-cassa',
+          address: PeerAddress(host: '192.168.1.7'),
+        ),
+      );
+
+      await tester.tap(find.byKey(const Key('peer-check')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('tablet-cassa'),
+        findsOneWidget,
+        reason: 'chi risponde è metà della diagnosi',
+      );
+    });
+
+    testWidgets('la prova usa ciò che è scritto adesso, non ciò che è salvato',
+        (WidgetTester tester) async {
+      // Chi sta configurando vuole sapere se funziona l'indirizzo che ha
+      // appena digitato: provarne un altro sarebbe rispondere a un'altra
+      // domanda.
+      final List<PeerSettings> provate = <PeerSettings>[];
+      await show(
+        tester,
+        initial: const PeerSettings(role: PeerRole.follower),
+        onCheck: (PeerSettings s) async {
+          provate.add(s);
+          return const LanCheck(primary: 'x');
+        },
+      );
+
+      await tester.enterText(
+          find.byKey(const Key('peer-host-field')), '10.0.0.4');
+      await tester.tap(find.byKey(const Key('peer-check')));
+      await tester.pumpAndSettle();
+
+      expect(provate.single.primaryHost, '10.0.0.4');
+    });
+
+    testWidgets('in cassa dice chi ha inviato ordini, non chi risponde',
+        (WidgetTester tester) async {
+      // Domanda diversa: una porta aperta dice che il servizio c'è, non che
+      // qualcuno lo stia usando.
+      await show(
+        tester,
+        initial: const PeerSettings(role: PeerRole.primary),
+        onCheck: (PeerSettings s) async => const LanCheck(
+          primary: 'io',
+          senders: <String>['tablet-b'],
+        ),
+      );
+
+      await tester.tap(find.byKey(const Key('peer-check')));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('tablet-b'), findsOneWidget);
+    });
+
+    testWidgets('un problema si legge come tale', (WidgetTester tester) async {
+      await show(
+        tester,
+        initial: const PeerSettings(role: PeerRole.follower),
+        onCheck: (PeerSettings s) async =>
+            const LanCheck(problem: 'Nessuna cassa trovata sulla rete.'),
+      );
+
+      await tester.tap(find.byKey(const Key('peer-check')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('peer-check-result')), findsOneWidget);
+      expect(find.textContaining('Nessuna cassa'), findsOneWidget);
+    });
   });
 
   testWidgets('annullare non salva niente', (WidgetTester tester) async {

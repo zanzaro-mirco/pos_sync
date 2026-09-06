@@ -98,6 +98,18 @@ class FakeServer implements OrderRegistry {
           for (final MapEntry<String, Order> e in byDevice.entries)
             if (e.key != deviceId) e.value,
       ];
+
+  @override
+  Set<String> senders() => <String>{
+        for (final Map<String, Order> byDevice in _versions.values)
+          ...byDevice.keys,
+      };
+
+  @override
+  void clear() {
+    _versions.clear();
+    received.clear();
+  }
 }
 
 /// Backend simulato, con rete controllabile.

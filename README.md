@@ -243,6 +243,13 @@ del dispositivo**. Il giro completo si prova così:
 Il pulsante di sincronizzazione resta per forzare il giro a mano. Gli ordini finiscono in un
 file SQLite: chiudendo l'app e riaprendola sono ancora lì, con il loro stato.
 
+Per ripartire da una lista vuota senza disinstallare l'app c'è **«Svuota gli ordini»** nel
+menu della barra. Toglie ordini, coda e conflitti di *questo* dispositivo, e con essi il
+registro locale. Se stai provando in due, fallo su entrambi: altrimenti il registro
+dell'altro rimanda indietro le proprie versioni al primo giro, e sembra che il pulsante non
+abbia funzionato. Il contatore logico invece non si azzera, ed è voluto — farlo tornare
+indietro romperebbe l'ordine su cui si regge la convergenza.
+
 ### Far nascere un conflitto
 
 Toccando una riga si aprono le azioni sul tavolo. L'ultima simula un secondo tablet: senza
@@ -282,6 +289,14 @@ Il prima/dopo si mostra col dito, senza toccare la rete:
 4. Stesso gesto del passo 1 → l'ordine compare. E anche al contrario.
 
 Fra il passo 1 e il passo 4 sono cambiate due impostazioni e nient'altro.
+
+**Per sapere se si stanno parlando** c'è **«Prova il collegamento»** in fondo allo stesso
+foglio, e risponde in modo diverso sui due lati perché la domanda è diversa. In sala dice
+*chi* risponde — l'identificativo della cassa, non un generico «ok», perché dopo
+un'elezione all'indirizzo noto può rispondere un altro dispositivo. In cassa dice *chi ha
+inviato ordini*: una porta aperta significa che il servizio c'è, non che qualcuno lo stia
+usando. Se non trova niente, il messaggio suggerisce il rimedio invece di fermarsi a
+«errore».
 
 Per vedere l'elezione: con i due collegati, chiudi l'app sulla cassa. Servono tre
 giri falliti **e** che il suo annuncio sia sparito dalla rete — finché il record

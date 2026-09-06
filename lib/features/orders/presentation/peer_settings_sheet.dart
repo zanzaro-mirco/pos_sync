@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../lan/lan_check.dart';
 import '../lan/peer_settings.dart';
 
 /// Dove si decide che parte fa questo dispositivo in sala.
@@ -24,10 +25,19 @@ class PeerSettingsSheet extends StatefulWidget {
     required this.initial,
     required this.onSave,
     this.localAddresses = const <String>[],
+    this.onCheck,
   });
 
   final PeerSettings initial;
   final ValueChanged<PeerSettings> onSave;
+
+  /// Prova la configurazione mostrata e dice com'è andata.
+  ///
+  /// Nullable come le azioni della pagina: una build senza rete locale non ha
+  /// niente da provare. Riceve le impostazioni **correnti del foglio** e non
+  /// quelle salvate, perché chi sta configurando vuole sapere se funziona ciò
+  /// che ha appena scritto.
+  final Future<LanCheck> Function(PeerSettings settings)? onCheck;
 
   /// Gli indirizzi con cui questo dispositivo è raggiungibile, da mostrare
   /// quando fa da cassa: sono quelli da digitare sugli altri tablet.
@@ -46,10 +56,33 @@ class _PeerSettingsSheetState extends State<PeerSettingsSheet> {
   late final TextEditingController _host =
       TextEditingController(text: widget.initial.primaryHost);
 
+  /// L'esito dell'ultima prova, o `null` se non se ne sono ancora fatte.
+  LanCheck? _check;
+  bool _checking = false;
+
   @override
   void dispose() {
     _host.dispose();
     super.dispose();
+  }
+
+  Future<void> _runCheck() async {
+    final Future<LanCheck> Function(PeerSettings)? check = widget.onCheck;
+    if (check == null || _checking) return;
+
+    setState(() {
+      _checking = true;
+      // L'esito vecchio sparisce subito: lasciarlo mentre si prova di nuovo
+      // farebbe leggere come risposta alla domanda di adesso una risposta alla
+      // domanda di prima.
+      _check = null;
+    });
+    final LanCheck result = await check(_chosen);
+    if (!mounted) return;
+    setState(() {
+      _checking = false;
+      _check = result;
+    });
   }
 
   // La porta si riporta com'era invece di essere ricalcolata: è un dato che
@@ -131,6 +164,36 @@ class _PeerSettingsSheetState extends State<PeerSettingsSheet> {
                   ),
                 ),
               ),
+            if (widget.onCheck != null) ...<Widget>[
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: OutlinedButton.icon(
+                    key: const Key('peer-check'),
+                    onPressed: _checking ? null : _runCheck,
+                    icon: const Icon(Icons.network_check),
+                    label: Text(
+                      _checking ? 'Provo...' : 'Prova il collegamento',
+                    ),
+                  ),
+                ),
+              ),
+            ],
+            if (_check != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: Text(
+                  _checkMessage(_check!),
+                  key: const Key('peer-check-result'),
+                  style: text.bodyMedium?.copyWith(
+                    color: _check!.ok
+                        ? Theme.of(context).colorScheme.primary
+                        : Theme.of(context).colorScheme.error,
+                  ),
+                ),
+              ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
               child: Row(
@@ -157,6 +220,28 @@ class _PeerSettingsSheetState extends State<PeerSettingsSheet> {
         ),
       ),
     );
+  }
+
+  /// Come si racconta un esito.
+  ///
+  /// Le due domande sono diverse a seconda del ruolo, e la risposta lo rispetta.
+  /// In sala interessa **chi risponde**; in cassa interessa **chi ha scritto**,
+  /// perché una porta aperta dice che il servizio c'è, non che qualcuno lo
+  /// stia usando.
+  String _checkMessage(LanCheck check) {
+    if (!check.ok) return check.problem!;
+
+    if (_role == PeerRole.primary) {
+      if (check.senders.isEmpty) {
+        return 'Registro attivo. Nessun altro dispositivo ha ancora inviato '
+            'ordini qui.';
+      }
+      return 'Registro attivo. Hanno inviato ordini: '
+          '${check.senders.join(', ')}.';
+    }
+
+    final String where = check.address == null ? '' : ' a ${check.address}';
+    return 'Risponde la cassa ${check.primary}$where.';
   }
 
   static String _title(PeerRole role) => switch (role) {

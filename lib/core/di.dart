@@ -8,6 +8,7 @@ import '../features/orders/data/local/app_database.dart';
 import '../features/orders/data/local/drift_device_store.dart';
 import '../features/orders/data/local/drift_order_store.dart';
 import '../features/orders/data/local/drift_peer_settings.dart';
+import '../features/orders/data/demo_reset.dart';
 import '../features/orders/data/order_registry.dart';
 import '../features/orders/data/order_store.dart';
 import '../features/orders/data/orders_repository_impl.dart';
@@ -16,6 +17,7 @@ import '../features/orders/data/second_device.dart';
 import '../features/orders/domain/orders_repository.dart';
 import '../features/orders/sync/auto_sync.dart';
 import '../features/orders/sync/conflict_policy.dart';
+import '../features/orders/lan/lan_check.dart';
 import '../features/orders/lan/lan_coordinator.dart';
 import '../features/orders/lan/nsd_discovery.dart';
 import '../features/orders/lan/peer_discovery.dart';
@@ -109,6 +111,18 @@ void setUpDependencies({bool demoMode = true}) {
     ),
   );
 
+  // Provare la rete e riferire. Non partecipa alla sincronizzazione: risponde
+  // a una domanda che il sistema non sapeva rispondere — «questi due
+  // dispositivi si stanno parlando?» — e che il contatore delle pendenze da
+  // solo non distingue da «non ho ancora niente da mandare».
+  sl.registerLazySingleton<LanChecker>(
+    () => LanChecker(
+      discovery: sl<PeerDiscovery>(),
+      registry: sl<OrderRegistry>(),
+      deviceId: sl<LogicalClockStore>().loadDeviceId,
+    ),
+  );
+
   sl.registerLazySingleton<PrimaryElection>(
     () => PrimaryElection(
       discovery: sl<PeerDiscovery>(),
@@ -143,6 +157,19 @@ void setUpDependencies({bool demoMode = true}) {
   if (demoMode) {
     sl.registerLazySingleton<SecondDevice>(
         () => SecondDevice(server: sl<FakeServer>()));
+
+    // Registrato sotto condizione come il secondo dispositivo, e per la stessa
+    // ragione: in un locale vero cancellare il servizio di una serata non è
+    // un'azione da offrire a chi prende le comande.
+    sl.registerLazySingleton<DemoReset>(
+      () => DemoReset(
+        orders: sl<OrderStore>(),
+        outbox: sl<OutboxStore>(),
+        conflicts: sl<ConflictStore>(),
+        registry: sl<OrderRegistry>(),
+        logger: sl<Logger>(),
+      ),
+    );
   }
 
   sl.registerLazySingleton<ConnectivityMonitor>(ConnectivityPlusMonitor.new);

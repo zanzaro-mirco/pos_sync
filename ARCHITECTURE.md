@@ -618,6 +618,53 @@ impostazione predefinita. Vorrebbe essere ristretto ai soli indirizzi privati, m
 la configurazione di sicurezza di rete di Android accetta domini e non
 intervalli: non si può scrivere `192.168.0.0/16`.
 
+### Sapere se i due dispositivi si parlano davvero
+
+Finito il passo 7, il sistema funzionava e non sapeva dirlo. L'unico segnale era
+indiretto — il contatore «da inviare» che sale — e non distingue **«la cassa non
+risponde»** da **«la cassa risponde ma non le ho ancora mandato niente»**. Chi
+prova due tablet resta a indovinare, e indovinare su una rete è il modo più
+rapido per dare la colpa alla cosa sbagliata.
+
+`LanChecker` risponde, e la risposta è diversa sui due lati perché la domanda lo
+è:
+
+- **In sala**: «qualcuno risponde, e chi?». Si chiede a `/health`, che
+  restituisce l'identificativo e non un sì/no — dopo un'elezione all'indirizzo
+  noto può rispondere un dispositivo diverso, e saperlo è metà della diagnosi.
+- **In cassa**: «qualcuno mi ha scritto?». La risposta sta nel registro, nei
+  dispositivi che vi hanno depositato una versione. **Una porta aperta dice che
+  il servizio c'è, non che qualcuno l'abbia usata**, ed è la differenza fra un
+  collegamento che esiste e uno che serve.
+
+Quando fallisce, il messaggio porta con sé il rimedio: «nessuna cassa trovata»
+suggerisce di scrivere l'indirizzo a mano, perché il caso più frequente è il
+multicast filtrato. Un messaggio che dice solo «errore» lascia chi legge senza
+mosse.
+
+### Svuotare, e cosa non si svuota
+
+Gli ordini stanno in un file SQLite che sopravvive alla chiusura — è il punto
+dell'architettura — e questo rende scomodo rifare una dimostrazione: l'unico
+modo di ripartire da una lista vuota era disinstallare l'app.
+
+`DemoReset` toglie ordini, coda e conflitti, e **svuota anche il registro
+locale**. È quest'ultima la parte che rende il gesto efficace: le proprie
+versioni non tornerebbero comunque indietro, perché il registro esclude sempre
+chi chiede, ma su un dispositivo che fa la cassa il registro è il posto da cui
+gli ordini di *tutti* possono ricomparire alla prima sincronizzazione. Da qui la
+regola scritta nella conferma: **si svuota su entrambi i dispositivi**.
+
+**Il contatore logico non si azzera**, di proposito. È l'unica cosa che lì non è
+dato di prova: farlo tornare indietro romperebbe l'ordine totale su cui si regge
+la convergenza, e una modifica futura risulterebbe più vecchia di una passata.
+Costa un numero che cresce; toglierlo costerebbe la correttezza.
+
+È registrato solo in modalità dimostrativa, come il secondo dispositivo
+simulato, e la pagina lo riceve come callback opzionale: in un locale vero
+cancellare il servizio di una serata non è un'azione da offrire a chi prende le
+comande.
+
 ### La piattaforma Windows
 
 Il progetto ha `windows/` per una ragione pratica: la prova a due dispositivi

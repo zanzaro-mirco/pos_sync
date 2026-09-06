@@ -45,6 +45,7 @@ void main() {
     void Function(int tableNumber)? onAddOrder,
     void Function(Order order)? onAddLine,
     void Function(Order order)? onOtherDevicePays,
+    Future<int> Function()? onResetOrders,
   }) async {
     final PresetCubit cubit = PresetCubit(state);
     addTearDown(cubit.close);
@@ -59,6 +60,7 @@ void main() {
             onAddOrder: onAddOrder ?? (int _) {},
             onAddLine: onAddLine ?? (Order _) {},
             onOtherDevicePays: onOtherDevicePays,
+            onResetOrders: onResetOrders,
           ),
         ),
       ),
@@ -466,6 +468,85 @@ void main() {
       // Da sola l'azione non mostra niente: il conflitto nasce alla comanda
       // successiva, e chi sta dimostrando deve sapere che manca un passo.
       expect(find.textContaining('Aggiungi una comanda'), findsOneWidget);
+    });
+  });
+
+  group('OrdersPage · svuotare gli ordini', () {
+    OrdersState withOrders() => OrdersState(
+          status: OrdersStatus.ready,
+          orders: <Order>[order(7)],
+        );
+
+    testWidgets('la voce non c\'è se questa build non la offre',
+        (WidgetTester tester) async {
+      // In un locale vero è `null`: cancellare il servizio di una serata non è
+      // un'azione da offrire a chi prende le comande.
+      await show(tester, withOrders());
+
+      expect(find.byKey(const Key('overflow-menu')), findsNothing);
+    });
+
+    testWidgets('chiede conferma prima di togliere qualcosa',
+        (WidgetTester tester) async {
+      int chiamate = 0;
+      await show(tester, withOrders(), onResetOrders: () async {
+        chiamate++;
+        return 1;
+      });
+
+      await tester.tap(find.byKey(const Key('overflow-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('reset-orders')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('reset-confirm')), findsOneWidget);
+      expect(chiamate, 0, reason: 'aprire il menu non deve cancellare niente');
+    });
+
+    testWidgets('annullare non svuota', (WidgetTester tester) async {
+      int chiamate = 0;
+      await show(tester, withOrders(), onResetOrders: () async {
+        chiamate++;
+        return 1;
+      });
+
+      await tester.tap(find.byKey(const Key('overflow-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('reset-orders')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('reset-cancel')));
+      await tester.pumpAndSettle();
+
+      expect(chiamate, 0);
+    });
+
+    testWidgets('confermando svuota e dice quanti ne ha tolti',
+        (WidgetTester tester) async {
+      // «Fatto» non distingue «ne ho cancellati dodici» da «non c'era niente».
+      await show(tester, withOrders(), onResetOrders: () async => 12);
+
+      await tester.tap(find.byKey(const Key('overflow-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('reset-orders')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('reset-confirm')));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('12'), findsOneWidget);
+    });
+
+    testWidgets('su un deposito vuoto lo dice invece di fingere',
+        (WidgetTester tester) async {
+      await show(tester, withOrders(), onResetOrders: () async => 0);
+
+      await tester.tap(find.byKey(const Key('overflow-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('reset-orders')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('reset-confirm')));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('niente da svuotare'), findsOneWidget);
     });
   });
 }
