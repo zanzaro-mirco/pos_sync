@@ -165,6 +165,10 @@ I test coprono i casi che contano, non le righe facili:
 | Qualunque delle due scelte | Nessuna riga sparisce — è la ragione per cui è sicuro chiedere |
 | Un dispositivo offline | Non blocca l'altro, e al rientro converge |
 | **Migrazione dello schema v1 → v2** | Una base dati scritta dalla versione precedente, con dentro ordini non ancora inviati, arriva intatta |
+| **Incassare e basta** | *Non* è un conflitto: le due versioni si fondono, il pagamento arriva — il caso normale non interrompe nessuno |
+| La sequenza della dimostrazione | Incassa, aggiungi, sincronizza: il conflitto nasce, e la scheda dice quanti articoli non erano nel conto |
+| Sincronizzare a conflitto aperto | Nessuna scheda duplicata, per quante volte si sincronizzi |
+| Le azioni sul tavolo | Il foglio non propone lo stato in cui il tavolo già si trova, e la voce dimostrativa sparisce se non le si passa un secondo dispositivo |
 
 Tempo, identificativi, log, politica di ritentativo, **contatore logico e politica di
 fusione** sono tutti iniettati: i test sul backoff girano in millisecondi invece di
@@ -175,7 +179,9 @@ tablet nello stesso locale.
 Due invarianti sono state verificate **al contrario**, rompendole apposta: sostituendo il
 confronto delle revisioni con «vince chi arriva per ultimo», i due dispositivi divergono e
 lo stesso tavolo risulta servito su uno e aperto sull'altro; togliendo il `witness`
-dell'orologio logico, i due restano d'accordo ma scartano l'ultima decisione presa.
+dell'orologio logico, i due restano d'accordo ma scartano l'ultima decisione presa;
+togliendo il controllo sui conflitti già aperti, tre sincronizzazioni producono tre schede
+identiche per la stessa decisione.
 
 ## I quattro stati di un ordine
 
@@ -213,6 +219,24 @@ del dispositivo**. Il giro completo si prova così:
 
 Il pulsante di sincronizzazione resta per forzare il giro a mano. Gli ordini finiscono in un
 file SQLite: chiudendo l'app e riaprendola sono ancora lì, con il loro stato.
+
+### Far nascere un conflitto
+
+Toccando una riga si aprono le azioni sul tavolo. L'ultima simula un secondo tablet: senza
+di essa il conflitto non potrebbe comparire, perché sul dispositivo c'è un client solo e il
+rientro non troverebbe mai niente da fondere.
+
+1. Crea un ordine — il numero del tavolo si può **ripetere**, ed è il punto.
+2. Tocca la riga → **«L'altro tablet incassa il tavolo»**.
+3. Tocca di nuovo la riga → **«Aggiungi una comanda»**.
+4. Compare la scheda arancione: *il tavolo risulta pagato, ma 2 articoli non erano nel
+   conto*. Il contatore nella barra sale.
+5. Scegli: «tieni il pagamento» oppure «tieni il tavolo aperto». Qualunque sia la scelta,
+   **la comanda resta** — è la ragione per cui è sicuro chiedere.
+
+Il secondo passo da solo non produce niente, ed è corretto: se il pagamento arrivasse prima
+della comanda le due versioni conterrebbero le stesse righe e si fonderebbero in silenzio.
+Il conflitto nasce perché la versione pagata **non contiene** ciò che è arrivato dopo.
 
 ## Stato e prossimi passi
 

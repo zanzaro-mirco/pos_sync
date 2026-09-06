@@ -29,6 +29,7 @@ features/orders/
       drift_device_store.dart  identità del dispositivo e contatore logico
     dto/order_dto.dart         rappresentazione di rete + mapper
     remote_api.dart            contratto + gerarchia sealed degli errori
+    second_device.dart         un altro tablet, simulato, per poterlo mostrare
     connectivity_plus_monitor.dart  adattatore sul plugin di rete
     outbox_scheduler.dart      creazione della voce di coda
     orders_repository_impl.dart
@@ -378,6 +379,40 @@ conflitto — la versione fusa contiene tutte le righe per costruzione. È anche
 scelta che tiene la porta aperta al passo successivo della roadmap: fra due tablet
 in rete locale, un server che fonde non c'è.
 
+### Perché si può mostrare, e non solo raccontare
+
+Per un po' questa parte è esistita solo nei test. La ragione è la stessa che
+spiegava l'assenza dei conflitti: sul dispositivo c'è **un solo** client, che si
+costruisce il proprio finto server, e `fetchOrders` restituisce le versioni degli
+*altri* — che non ci sono. Il rientro girava a vuoto, la scheda di risoluzione
+era codice irraggiungibile, e in colloquio si sarebbe potuto aprire un file di
+test ma non lo schermo.
+
+`SecondDevice` scrive nel finto server come farebbe un altro tablet: mette lì una
+versione e si ferma. Non conosce il deposito locale, non chiama la politica di
+fusione, non ha una via privilegiata verso la schermata. Tutto ciò che segue —
+il rientro, la fusione, il conflitto — è il sistema vero che fa il suo mestiere
+senza sapere che l'altro dispositivo è finto. È l'unica dipendenza registrata
+sotto condizione in `di.dart`, e la pagina la riceve come callback opzionale:
+una build collegata a un backend reale passa `null` e la voce sparisce dal menu.
+
+La sequenza che si esegue col dito è di tre passi, e il secondo non è un
+dettaglio: **incassare non basta**. Se il pagamento altrui arrivasse subito, le
+due versioni conterrebbero le stesse righe e si fonderebbero in silenzio — che è
+il comportamento giusto. Il conflitto nasce alla comanda successiva, perché è
+allora che la versione pagata non la contiene. `second_device_test.dart` verifica
+entrambe le metà, e la seconda — *quando il conflitto non deve comparire* — è
+quella che conta di più: un sistema che chiede sempre viene ignorato.
+
+Da qui una regola che senza uno schermo davanti non si sarebbe notata: **su un
+ordine con un conflitto già aperto non se ne registra un secondo.** Finché
+nessuno decide, ogni sincronizzazione ripesca la stessa versione altrui e arriva
+di nuovo al punto in cui ci si ferma; ai test non dava fastidio, perché
+sincronizzavano una volta sola. Nell'app la schermata si riempiva di schede
+identiche — e una richiesta di decisione ripetuta all'infinito si smette di
+leggere, che è il modo più rapido per rendere inutile l'unica cosa che il sistema
+chiede.
+
 ## SOLID, punto per punto
 
 **Single Responsibility.** Il `SyncWorker` faceva cinque cose: orchestrare la coda,
@@ -421,6 +456,7 @@ punto solo.
 | L'aspetto era verificabile solo guardando l'app | Quattro golden sulla riga dell'ordine: cambiare di uno il valore di un colore fa fallire il test |
 | Un secondo dispositivo esisteva solo come ipotesi | `FakeServer` condiviso fra due `TestEnv`: due tablet veri, con la propria rete e il proprio contatore |
 | La migrazione dello schema era un ramo di codice mai eseguito | `migration_test.dart` apre una base dati in formato versione 1, con dentro degli ordini |
+| I conflitti si potevano descrivere ma non mostrare | `SecondDevice` scrive nel finto server come un altro tablet, e la sequenza che si esegue col dito è verificata da `second_device_test.dart` |
 
 ### La suite di contratto
 
@@ -485,6 +521,15 @@ e riaperto il file.
   prima sincronizzazione, perché per il server esiste ancora. Servirebbero le
   *tombstone*, cioè una cancellazione che è essa stessa un dato che si propaga. Le
   righe non hanno il problema, perché non si cancellano per costruzione.
+- **Il secondo dispositivo è simulato, e sta nel codice di produzione.** Non è
+  dietro un flag di compilazione né in un sorgente separato: è registrato solo
+  in modalità demo e la pagina lo riceve come callback opzionale, ma il file
+  viene compilato comunque. Con un backend vero al posto di `FakeRemoteApi`
+  sparirebbe insieme a lui.
+- **La scheda mostra le due versioni di quando il conflitto è nato.** Se nel
+  frattempo l'altro dispositivo cambia ancora idea, il confronto non si aggiorna:
+  la decisione riguarda comunque solo lo stato del tavolo, e le righe si uniscono
+  in ogni caso, quindi l'esito resta corretto anche se la scheda invecchia.
 - **Il conflitto resta sul dispositivo che lo ha visto.** Se A e B se lo trovano
   entrambi, entrambi devono aprirlo — poi la prima decisione chiude anche l'altro,
   ma nell'intervallo in due potrebbero decidere in modo opposto. Vincerebbe la
