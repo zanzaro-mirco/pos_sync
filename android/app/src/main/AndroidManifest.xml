@@ -1,8 +1,28 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Finché il backend era simulato in processo, questo permesso non
+         serviva: il template Flutter lo dichiara solo nei manifest di debug e
+         profile, per gli strumenti di sviluppo. Con la sincronizzazione in rete
+         locale serve anche in release, altrimenti l'app compilata funziona sul
+         computer di chi sviluppa e non su quella del cliente. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- `usesCleartextTraffic`: da Android 9 il traffico in chiaro è vietato
+         per impostazione predefinita, e la sincronizzazione fra tablet è HTTP
+         semplice su una rete locale. Non usare TLS è una scelta dichiarata fra
+         le semplificazioni: in sala i dispositivi non hanno un certificato e
+         non c'è un'autorità che glielo firmi, e chi è già sul Wi-Fi del locale
+         è considerato fidato.
+
+         Vorrebbe essere ristretto ai soli indirizzi privati, ma la
+         configurazione di sicurezza di rete di Android accetta domini, non
+         intervalli: non si può scrivere "192.168.0.0/16". Restringerlo
+         all'indirizzo della cassa significherebbe ricompilare l'app a ogni
+         cambio di indirizzo. -->
     <application
         android:label="pos_sync"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"
