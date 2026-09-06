@@ -10,6 +10,7 @@ import '../features/orders/data/local/drift_order_store.dart';
 import '../features/orders/data/order_store.dart';
 import '../features/orders/data/orders_repository_impl.dart';
 import '../features/orders/data/remote_api.dart';
+import '../features/orders/data/second_device.dart';
 import '../features/orders/domain/orders_repository.dart';
 import '../features/orders/sync/auto_sync.dart';
 import '../features/orders/sync/conflict_policy.dart';
@@ -65,6 +66,16 @@ void setUpDependencies({bool demoMode = true}) {
   sl.registerLazySingleton<FakeRemoteApi>(
       () => FakeRemoteApi(online: demoMode));
   sl.registerLazySingleton<RemoteApi>(() => sl<FakeRemoteApi>());
+
+  // Il secondo tablet esiste solo in demo, ed è l'unica dipendenza registrata
+  // sotto condizione: senza di lui il rientro non trova mai niente — c'è un
+  // dispositivo solo — e la parte più interessante del sistema resterebbe
+  // visibile nei soli test. Chi la usa controlla se c'è, invece di darla per
+  // scontata.
+  if (demoMode) {
+    sl.registerLazySingleton<SecondDevice>(
+        () => SecondDevice(server: sl<FakeRemoteApi>().server));
+  }
 
   sl.registerLazySingleton<ConnectivityMonitor>(ConnectivityPlusMonitor.new);
 

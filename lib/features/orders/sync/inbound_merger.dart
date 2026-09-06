@@ -95,6 +95,10 @@ class InboundMerger {
     return result;
   }
 
+  Future<bool> _hasOpenConflictOn(String orderId) async =>
+      (await _conflicts.openConflicts())
+          .any((OrderConflict c) => c.orderId == orderId);
+
   Future<void> _closeConflictsOn(String orderId) async {
     for (final OrderConflict aperto in await _conflicts.openConflicts()) {
       if (aperto.orderId == orderId) {
@@ -135,6 +139,14 @@ class InboundMerger {
         return const MergeResult(merged: 1);
 
       case NeedsDecision<Order>(:final String reason):
+        // Su un ordine che ha già un conflitto aperto non se ne registra un
+        // secondo. Finché nessuno decide, ogni sincronizzazione ripesca la
+        // stessa versione altrui e arriva di nuovo qui: senza questo controllo
+        // la schermata si riempirebbe di schede identiche, e una richiesta di
+        // decisione ripetuta all'infinito si smette di leggere — che è il modo
+        // più rapido per rendere inutile l'unica cosa che il sistema chiede.
+        if (await _hasOpenConflictOn(theirs.id)) return const MergeResult();
+
         await _conflicts.recordConflict(
           OrderConflict(
             id: _ids.next(),

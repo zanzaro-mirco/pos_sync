@@ -69,6 +69,22 @@ class OrdersCubit extends Cubit<OrdersState> {
     }
   }
 
+  /// Aggiunge una comanda a un tavolo già aperto.
+  ///
+  /// Le righe si aggiungono e non si modificano: è la scelta che permette a
+  /// due camerieri di lavorare sullo stesso tavolo senza pestarsi i piedi.
+  Future<void> addLines({
+    required String orderId,
+    required List<OrderLineDraft> lines,
+  }) async {
+    try {
+      await _repository.addLines(orderId: orderId, lines: lines);
+      unawaited(sync());
+    } catch (e) {
+      emit(state.copyWith(status: OrdersStatus.error, message: '$e'));
+    }
+  }
+
   /// Cambia lo stato del tavolo. Come tutto il resto, funziona anche offline:
   /// la modifica è locale e porta con sé la revisione che la data.
   Future<void> changeState({

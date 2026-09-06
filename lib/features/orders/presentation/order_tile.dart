@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../domain/order.dart';
+import '../domain/order_state.dart';
 import '../domain/sync_status.dart';
 
 /// Una riga della lista ordini.
@@ -10,16 +11,31 @@ import '../domain/sync_status.dart';
 /// superiore, e un test che fallisce per motivi che non interessano smette
 /// presto di essere letto.
 class OrderTile extends StatelessWidget {
-  const OrderTile({super.key, required this.order});
+  const OrderTile({super.key, required this.order, this.onTap});
 
   final Order order;
+
+  /// Cosa fare toccando la riga. Nullable: nei golden la riga si ritrae da
+  /// sola, senza che nessuno debba inventarsi un'azione per poterla disegnare.
+  final VoidCallback? onTap;
+
+  /// `aperto` non si scrive.
+  ///
+  /// È lo stato normale di un tavolo, e ripeterlo su ogni riga riempirebbe la
+  /// lista di una parola che non distingue niente: si nota ciò che è raro, non
+  /// ciò che c'è ovunque. Ha anche l'effetto di lasciare intatti i quattro
+  /// riferimenti golden, che ritraggono tavoli aperti.
+  String get _sottotitolo => order.state == OrderState.aperto
+      ? '${order.itemCount} articoli'
+      : '${order.itemCount} articoli · ${order.state.name}';
 
   @override
   Widget build(BuildContext context) {
     return ListTile(
+      onTap: onTap,
       leading: SyncStatusIcon(status: order.status),
       title: Text('Tavolo ${order.tableNumber}'),
-      subtitle: Text('${order.itemCount} articoli'),
+      subtitle: Text(_sottotitolo),
       trailing: Text('${(order.totalCents / 100).toStringAsFixed(2)} €'),
     );
   }

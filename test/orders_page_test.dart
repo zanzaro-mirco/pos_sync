@@ -15,11 +15,17 @@ import 'package:pos_sync/features/orders/presentation/orders_state.dart';
 import 'helpers/cubit_preimpostato.dart';
 
 void main() {
-  Order ordine(int tavolo, {SyncStatus stato = SyncStatus.pending}) => Order(
+  Order ordine(
+    int tavolo, {
+    SyncStatus stato = SyncStatus.pending,
+    OrderState tavoloStato = OrderState.aperto,
+  }) =>
+      Order(
         id: 'id-$tavolo',
         tableNumber: tavolo,
         createdAt: DateTime(2026, 7, 27, 12),
         status: stato,
+        state: tavoloStato,
         lines: const <OrderLine>[
           OrderLine(
             id: 'r-01',
@@ -37,6 +43,8 @@ void main() {
     WidgetTester tester,
     OrdersState stato, {
     void Function(int tableNumber)? onAddOrder,
+    void Function(Order order)? onAddLine,
+    void Function(Order order)? onOtherDevicePays,
   }) async {
     final CubitPreimpostato cubit = CubitPreimpostato(stato);
     addTearDown(cubit.close);
@@ -47,7 +55,11 @@ void main() {
           value: cubit,
           // Il valore predefinito non fa niente: i test che non riguardano la
           // creazione non devono decidere cosa succede quando si crea.
-          child: OrdersPage(onAddOrder: onAddOrder ?? (int _) {}),
+          child: OrdersPage(
+            onAddOrder: onAddOrder ?? (int _) {},
+            onAddLine: onAddLine ?? (Order _) {},
+            onOtherDevicePays: onOtherDevicePays,
+          ),
         ),
       ),
     );
@@ -332,6 +344,128 @@ void main() {
 
       expect(find.byKey(const Key('empty-text')), findsNothing);
       expect(find.byType(ConflictCard), findsOneWidget);
+    });
+  });
+
+  group('OrdersPage · le azioni su un tavolo', () {
+    OrdersState conTavolo(OrderState stato) => OrdersState(
+          status: OrdersStatus.ready,
+          orders: <Order>[ordine(7, tavoloStato: stato)],
+        );
+
+    Future<CubitPreimpostato> apriIlFoglio(
+      WidgetTester tester,
+      OrdersState stato, {
+      void Function(Order order)? onAddLine,
+      void Function(Order order)? onOtherDevicePays,
+    }) async {
+      final CubitPreimpostato cubit = await mostra(
+        tester,
+        stato,
+        onAddLine: onAddLine,
+        onOtherDevicePays: onOtherDevicePays,
+      );
+      await tester.tap(find.byType(OrderTile));
+      await tester.pumpAndSettle();
+      return cubit;
+    }
+
+    testWidgets('lo stato del tavolo si legge solo quando non è aperto',
+        (WidgetTester tester) async {
+      // `aperto` è la normalità: scriverlo su ogni riga riempirebbe la lista
+      // di una parola che non distingue niente.
+      await mostra(tester, conTavolo(OrderState.aperto));
+      expect(find.text('2 articoli'), findsOneWidget);
+
+      await mostra(tester, conTavolo(OrderState.pagato));
+      expect(find.text('2 articoli · pagato'), findsOneWidget);
+    });
+
+    testWidgets('toccare la riga apre le azioni sul tavolo',
+        (WidgetTester tester) async {
+      await apriIlFoglio(tester, conTavolo(OrderState.aperto));
+
+      expect(find.byKey(const Key('action-servito')), findsOneWidget);
+      expect(find.byKey(const Key('action-pagato')), findsOneWidget);
+      expect(find.byKey(const Key('action-add-line')), findsOneWidget);
+    });
+
+    testWidgets('lo stato in cui il tavolo già si trova non viene proposto',
+        (WidgetTester tester) async {
+      // Una voce che non farebbe niente occupa spazio e va letta per
+      // scoprirlo.
+      await apriIlFoglio(tester, conTavolo(OrderState.pagato));
+
+      expect(find.byKey(const Key('action-pagato')), findsNothing);
+      expect(find.byKey(const Key('action-aperto')), findsOneWidget);
+      expect(find.text('Riapri il tavolo'), findsOneWidget);
+    });
+
+    testWidgets('le voci dicono cosa succede, non quale campo cambia',
+        (WidgetTester tester) async {
+      await apriIlFoglio(tester, conTavolo(OrderState.aperto));
+
+      expect(find.text('Segna servito'), findsOneWidget);
+      expect(find.text('Segna pagato'), findsOneWidget);
+    });
+
+    testWidgets('cambiare stato arriva al cubit e chiude il foglio',
+        (WidgetTester tester) async {
+      final CubitPreimpostato cubit =
+          await apriIlFoglio(tester, conTavolo(OrderState.aperto));
+
+      await tester.tap(find.byKey(const Key('action-pagato')));
+      await tester.pumpAndSettle();
+
+      expect(cubit.statiCambiati,
+          <(String, OrderState)>[('id-7', OrderState.pagato)]);
+      expect(find.byKey(const Key('action-pagato')), findsNothing,
+          reason: 'il foglio deve chiudersi dopo la scelta');
+    });
+
+    testWidgets('la comanda arriva a chi la sa comporre, non al cubit',
+        (WidgetTester tester) async {
+      // La pagina offre l'azione ma non decide cosa ci sia dentro una
+      // comanda, esattamente come per la creazione di un ordine.
+      final List<String> richieste = <String>[];
+      await apriIlFoglio(
+        tester,
+        conTavolo(OrderState.aperto),
+        onAddLine: (Order o) => richieste.add(o.id),
+      );
+
+      await tester.tap(find.byKey(const Key('action-add-line')));
+      await tester.pumpAndSettle();
+
+      expect(richieste, <String>['id-7']);
+    });
+
+    testWidgets('senza secondo dispositivo la voce dimostrativa non c\'è',
+        (WidgetTester tester) async {
+      // Una build collegata a un backend vero passa `null` e la voce sparisce,
+      // senza che la pagina debba sapere il perché.
+      await apriIlFoglio(tester, conTavolo(OrderState.aperto));
+
+      expect(find.byKey(const Key('action-other-device')), findsNothing);
+    });
+
+    testWidgets('con il secondo dispositivo la voce c\'è e avverte del seguito',
+        (WidgetTester tester) async {
+      final List<String> incassati = <String>[];
+      await apriIlFoglio(
+        tester,
+        conTavolo(OrderState.aperto),
+        onOtherDevicePays: (Order o) => incassati.add(o.id),
+      );
+
+      expect(find.byKey(const Key('action-other-device')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('action-other-device')));
+      await tester.pumpAndSettle();
+
+      expect(incassati, <String>['id-7']);
+      // Da sola l'azione non mostra niente: il conflitto nasce alla comanda
+      // successiva, e chi sta dimostrando deve sapere che manca un passo.
+      expect(find.textContaining('Aggiungi una comanda'), findsOneWidget);
     });
   });
 }

@@ -22,6 +22,7 @@ class CubitPreimpostato extends Cubit<OrdersState> implements OrdersCubit {
   int avvii = 0;
   int sincronizzazioni = 0;
   final List<int> tavoliAggiunti = <int>[];
+  final List<String> comandeAggiunte = <String>[];
   final List<(String, OrderState)> statiCambiati = <(String, OrderState)>[];
   final List<(String, ConflictChoice)> conflittiRisolti =
       <(String, ConflictChoice)>[];
@@ -35,6 +36,14 @@ class CubitPreimpostato extends Cubit<OrdersState> implements OrdersCubit {
     required List<OrderLineDraft> lines,
   }) async {
     tavoliAggiunti.add(tableNumber);
+  }
+
+  @override
+  Future<void> addLines({
+    required String orderId,
+    required List<OrderLineDraft> lines,
+  }) async {
+    comandeAggiunte.add(orderId);
   }
 
   @override
