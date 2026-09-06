@@ -16,6 +16,7 @@ class OrdersPage extends StatelessWidget {
     required this.onAddOrder,
     required this.onAddLine,
     this.onOtherDevicePays,
+    this.onOpenSettings,
   });
 
   /// Cosa fare quando si crea un ordine.
@@ -39,6 +40,12 @@ class OrdersPage extends StatelessWidget {
   /// esisterebbe: una build collegata a un backend reale passa `null` e la voce
   /// sparisce, senza che la pagina debba sapere il perché.
   final void Function(Order order)? onOtherDevicePays;
+
+  /// Apre le impostazioni di rete locale, se questa build le ha.
+  ///
+  /// Nullable come [onOtherDevicePays] e per la stessa ragione: la pagina non
+  /// deve sapere se questo dispositivo può fare parte di una rete di sala.
+  final VoidCallback? onOpenSettings;
 
   /// Le azioni su un tavolo, in un foglio che sale dal basso.
   ///
@@ -165,6 +172,13 @@ class OrdersPage extends StatelessWidget {
                 icon: const Icon(Icons.sync),
                 onPressed: () => context.read<OrdersCubit>().sync(),
               ),
+              if (onOpenSettings != null)
+                IconButton(
+                  key: const Key('settings-button'),
+                  icon: const Icon(Icons.lan),
+                  tooltip: 'Rete locale',
+                  onPressed: onOpenSettings,
+                ),
             ],
           ),
           body: switch (state.status) {
