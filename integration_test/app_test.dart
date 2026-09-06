@@ -12,6 +12,13 @@
 /// stessa `PosSyncApp` di `main()`, la base dati sul filesystem del
 /// dispositivo. Niente doppi, nemmeno per il tempo.
 ///
+/// **Niente `pumpAndSettle` per aspettare un risultato.** Quel metodo aspetta
+/// che non ci siano più frame in coda, non che le promesse siano risolte: una
+/// scrittura su SQLite non produce frame finché non arriva in fondo. Su un
+/// disco veloce la differenza non si vede, su un emulatore sì — ed è il motivo
+/// per cui la prima versione di questi test passava in locale e falliva in
+/// pipeline. Qui si aspetta la **condizione**, con `pumpUntil`.
+///
 /// **Come si esegue**
 ///
 /// ```
@@ -22,6 +29,8 @@
 /// In CI gira su un emulatore Android, che è l'unico modo di far vedere a una
 /// macchina senza schermo che l'app parte davvero.
 library;
+
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -35,20 +44,39 @@ import 'package:pos_sync/features/orders/lan/lan_check.dart';
 import 'package:pos_sync/features/orders/lan/lan_coordinator.dart';
 import 'package:pos_sync/features/orders/lan/peer_settings.dart';
 import 'package:pos_sync/features/orders/presentation/order_tile.dart';
-import 'package:pos_sync/features/orders/sync/sync_worker.dart';
 import 'package:pos_sync/main.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  /// Una porta diversa da quella di esercizio, e non e' pignoleria.
+  /// Una porta diversa da quella di esercizio, e non è pignoleria.
   ///
-  /// `HttpServer.bind` usa `shared: true`, quindi legare una porta gia' presa
+  /// `HttpServer.bind` usa `shared: true`, quindi legare una porta già presa
   /// **riesce** e le richieste si dividono fra i due ascoltatori. Se sulla
-  /// stessa macchina girasse l'app vera in modalita' cassa, questi test
+  /// stessa macchina girasse l'app vera in modalità cassa, questi test
   /// potrebbero parlare con lei invece che con l'istanza in prova: passerebbero
-  /// per la ragione sbagliata, che e' peggio di fallire.
+  /// per la ragione sbagliata, che è peggio di fallire.
   const int portaDiProva = 53171;
+
+  /// Pompa finché [condizione] non è vera, e fallisce dicendo cosa aspettava.
+  ///
+  /// È la differenza fra «l'interfaccia si è fermata» e «il lavoro è finito».
+  /// Il tempo massimo è largo di proposito: su un emulatore la prima scrittura
+  /// paga il caricamento della libreria nativa, e un limite stretto
+  /// trasformerebbe questi test in una misura della velocità della macchina.
+  Future<void> pumpUntil(
+    WidgetTester tester,
+    FutureOr<bool> Function() condizione, {
+    required String aspettando,
+    Duration entro = const Duration(seconds: 30),
+  }) async {
+    final DateTime limite = DateTime.now().add(entro);
+    while (DateTime.now().isBefore(limite)) {
+      if (await condizione()) return;
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    fail('$aspettando — non è successo entro $entro');
+  }
 
   /// Monta l'applicazione come farebbe `main()`.
   ///
@@ -62,7 +90,7 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  /// Chiude tutto come farebbe l'uscita dall'app, e riapre.
+  /// Chiude tutto come farebbe l'uscita dall'app.
   ///
   /// La base dati va chiusa **prima** di dimenticare le registrazioni:
   /// lasciarne aperte due sullo stesso file significherebbe misurare il
@@ -78,17 +106,38 @@ void main() {
   /// Riapre l'app sullo stesso file: è la simulazione più vicina a chiudere e
   /// riaprire che un test possa fare senza uscire dal processo.
   Future<void> restart(WidgetTester tester) async {
-    // Smontare l'albero **prima** di chiudere non e' pulizia: e' la sostanza
-    // del riavvio. Ripompando lo stesso widget radice, Flutter lo riconosce e
-    // riusa gli elementi — `BlocProvider.create` non viene richiamato e il
-    // cubit vecchio sopravvive, con dentro il repository di prima. Il test
+    // Smontare l'albero **prima** di chiudere non è pulizia: è la sostanza del
+    // riavvio. Ripompando lo stesso widget radice, Flutter lo riconosce e riusa
+    // gli elementi — `BlocProvider.create` non viene richiamato e il cubit
+    // vecchio sopravvive, con dentro il repository di prima. Il test
     // misurerebbe la memoria invece del file, e passerebbe anche con una base
     // dati volatile: verificato togliendo questa riga.
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
 
+    // Creare un ordine avvia una sincronizzazione che nessuno attende. Chiudere
+    // la base dati mentre quella la sta interrogando produce un errore dopo la
+    // fine del test: vero, ma senza colpa dell'app — è il test che le toglie il
+    // tavolo da sotto.
+    await tester.pump(const Duration(milliseconds: 500));
+
     await shutdown();
     await launch(tester);
+  }
+
+  /// Crea un ordine dall'interfaccia e aspetta di vederlo in lista.
+  Future<void> creaOrdine(WidgetTester tester) async {
+    final int prima = find.byType(OrderTile).evaluate().length;
+
+    await tester.tap(find.byKey(const Key('add-order')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('table-number-confirm')));
+
+    await pumpUntil(
+      tester,
+      () => find.byType(OrderTile).evaluate().length > prima,
+      aspettando: "l'ordine appena creato compare in lista",
+    );
   }
 
   setUp(() async {
@@ -111,19 +160,13 @@ void main() {
     await launch(tester);
     expect(find.byKey(const Key('empty-text')), findsOneWidget);
 
-    await tester.tap(find.byKey(const Key('add-order')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('table-number-confirm')));
-    await tester.pumpAndSettle();
-
-    expect(find.byType(OrderTile), findsOneWidget);
-
+    await creaOrdine(tester);
     await restart(tester);
 
-    expect(
-      find.byType(OrderTile),
-      findsOneWidget,
-      reason: 'la sorgente di verità è il file, non la memoria',
+    await pumpUntil(
+      tester,
+      () => find.byType(OrderTile).evaluate().isNotEmpty,
+      aspettando: "l'ordine si ritrova dopo il riavvio, perché sta nel file",
     );
   });
 
@@ -132,22 +175,27 @@ void main() {
     // Cancellare dalla memoria e cancellare dal file sono due cose diverse, e
     // solo qui si vede la differenza.
     await launch(tester);
-    await tester.tap(find.byKey(const Key('add-order')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('table-number-confirm')));
-    await tester.pumpAndSettle();
-    expect(find.byType(OrderTile), findsOneWidget);
+    await creaOrdine(tester);
 
     await tester.tap(find.byKey(const Key('overflow-menu')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('reset-orders')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('reset-confirm')));
-    await tester.pumpAndSettle();
+
+    await pumpUntil(
+      tester,
+      () => find.byType(OrderTile).evaluate().isEmpty,
+      aspettando: 'la lista si svuota',
+    );
 
     await restart(tester);
 
-    expect(find.byKey(const Key('empty-text')), findsOneWidget);
+    await pumpUntil(
+      tester,
+      () => find.byKey(const Key('empty-text')).evaluate().isNotEmpty,
+      aspettando: 'dopo il riavvio la lista è ancora vuota',
+    );
   });
 
   testWidgets('da cassa apre davvero una porta, e risponde a chi bussa',
@@ -160,12 +208,7 @@ void main() {
       const PeerSettings(role: PeerRole.primary, primaryPort: portaDiProva),
     );
 
-    await tester.tap(find.byKey(const Key('add-order')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('table-number-confirm')));
-    await tester.pumpAndSettle();
-    // La sincronizzazione porta l'ordine nel registro che il server espone.
-    await sl<SyncWorker>().drain();
+    await creaOrdine(tester);
 
     final HttpRemoteApi visitatore = HttpRemoteApi(
       host: '127.0.0.1',
@@ -174,10 +217,22 @@ void main() {
     );
     addTearDown(visitatore.close);
 
-    expect(
-      await visitatore.primaryDeviceId(),
-      isNotNull,
-      reason: 'la cassa deve dire chi è, non solo accettare la connessione',
+    // Si aspetta che risponda invece di chiederlo una volta sola. Il server si
+    // accende alla prima sincronizzazione, e quella parte da sé quando l'ordine
+    // viene creato: un `drain()` esplicito qui non aiuterebbe, perché la
+    // guardia di concorrenza del worker lo farebbe uscire subito trovandone uno
+    // già in corso. È il difetto che ha fatto fallire questo test in pipeline
+    // mentre passava in locale.
+    await pumpUntil(
+      tester,
+      () async => await visitatore.primaryDeviceId() != null,
+      aspettando: 'la cassa apre la porta e dice chi è',
+    );
+
+    await pumpUntil(
+      tester,
+      () async => (await visitatore.fetchOrders()).isNotEmpty,
+      aspettando: "l'ordine arriva a chi lo chiede da fuori",
     );
 
     final List<Order> visti = await visitatore.fetchOrders();
@@ -187,15 +242,15 @@ void main() {
 
   testWidgets('la prova del collegamento riferisce chi ha scritto al registro',
       (WidgetTester tester) async {
-    // La diagnostica messa alla prova su socket veri: quello che si legge
-    // nelle impostazioni deve corrispondere a ciò che è successo davvero.
-    await launch(tester);
-    await sl<PeerSettingsStore>().save(
-      const PeerSettings(role: PeerRole.primary, primaryPort: portaDiProva),
-    );
+    // La diagnostica messa alla prova su socket veri: quello che si legge nelle
+    // impostazioni deve corrispondere a ciò che è successo davvero.
+    const PeerSettings daCassa =
+        PeerSettings(role: PeerRole.primary, primaryPort: portaDiProva);
 
-    final LanCheck prima = await sl<LanChecker>()
-        .check(const PeerSettings(role: PeerRole.primary));
+    await launch(tester);
+    await sl<PeerSettingsStore>().save(daCassa);
+
+    final LanCheck prima = await sl<LanChecker>().check(daCassa);
     expect(prima.senders, isEmpty);
 
     final HttpRemoteApi cameriere = HttpRemoteApi(
@@ -205,19 +260,17 @@ void main() {
     );
     addTearDown(cameriere.close);
 
-    await tester.tap(find.byKey(const Key('add-order')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('table-number-confirm')));
-    await tester.pumpAndSettle();
-    // Esplicito e non affidato alla sincronizzazione automatica: quella parte
-    // senza essere attesa, e un test che ci contasse fallirebbe a caso.
-    await sl<SyncWorker>().drain();
+    await creaOrdine(tester);
+    await pumpUntil(
+      tester,
+      () async => (await cameriere.fetchOrders()).isNotEmpty,
+      aspettando: 'la cassa ha di che rispondere',
+    );
 
     final List<Order> miei = await cameriere.fetchOrders();
     await cameriere.submitOrder(miei.single);
 
-    final LanCheck dopo = await sl<LanChecker>()
-        .check(const PeerSettings(role: PeerRole.primary));
+    final LanCheck dopo = await sl<LanChecker>().check(daCassa);
     expect(dopo.senders, contains('tablet-in-sala'));
   });
 }
