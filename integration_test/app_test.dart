@@ -38,6 +38,7 @@ import 'package:integration_test/integration_test.dart';
 import 'package:pos_sync/core/di.dart';
 import 'package:pos_sync/features/orders/data/demo_reset.dart';
 import 'package:pos_sync/features/orders/data/local/app_database.dart';
+import 'package:pos_sync/features/orders/data/remote_api.dart';
 import 'package:pos_sync/features/orders/domain/order.dart';
 import 'package:pos_sync/features/orders/lan/http_remote_api.dart';
 import 'package:pos_sync/features/orders/lan/lan_check.dart';
@@ -76,6 +77,22 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
     }
     fail('$aspettando — non è successo entro $entro');
+  }
+
+  /// Gli ordini che la cassa mostra a [client], o una lista vuota se non
+  /// risponde ancora.
+  ///
+  /// La tolleranza sta qui e non dentro `pumpUntil`: un aiuto generico che
+  /// ingoia qualunque eccezione trasformerebbe un guasto vero in un'attesa che
+  /// scade, e il messaggio direbbe «non è successo» invece di dire cosa è
+  /// andato storto. Qui invece il rifiuto della connessione **e'** la risposta
+  /// che stiamo aspettando: il server si accende alla prima sincronizzazione.
+  Future<List<Order>> ordiniVisibiliA(HttpRemoteApi client) async {
+    try {
+      return await client.fetchOrders();
+    } on ApiFailure {
+      return const <Order>[];
+    }
   }
 
   /// Monta l'applicazione come farebbe `main()`.
@@ -150,7 +167,13 @@ void main() {
     await shutdown();
   });
 
-  tearDown(shutdown);
+  tearDown(() async {
+    // Stessa ragione della pausa nel riavvio: la sincronizzazione che parte da
+    // sola alla creazione di un ordine non è attesa da nessuno, e chiudere il
+    // file mentre lavora produce un errore che non riguarda l'app.
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    await shutdown();
+  });
 
   testWidgets('l app parte, crea un ordine e lo ritrova dopo un riavvio',
       (WidgetTester tester) async {
@@ -231,7 +254,7 @@ void main() {
 
     await pumpUntil(
       tester,
-      () async => (await visitatore.fetchOrders()).isNotEmpty,
+      () async => (await ordiniVisibiliA(visitatore)).isNotEmpty,
       aspettando: "l'ordine arriva a chi lo chiede da fuori",
     );
 
@@ -263,7 +286,7 @@ void main() {
     await creaOrdine(tester);
     await pumpUntil(
       tester,
-      () async => (await cameriere.fetchOrders()).isNotEmpty,
+      () async => (await ordiniVisibiliA(cameriere)).isNotEmpty,
       aspettando: 'la cassa ha di che rispondere',
     );
 
