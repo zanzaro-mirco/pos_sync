@@ -97,3 +97,35 @@ jobs:
         with:
           name: app-debug
           path: build/app/outputs/flutter-apk/app-debug.apk
+
+  # Solo la compilazione, non i test: quelli girano gia' su Linux, e ripeterli
+  # qui costerebbe minuti per dire la stessa cosa. Cio' che questo lavoro
+  # verifica e' l'altra meta': che il codice nativo compili con MSVC e che i
+  # pacchetti con una parte C++ - drift attraverso sqlite3, connectivity_plus -
+  # abbiano davvero un'implementazione per Windows. E' un fallimento che su
+  # Linux non si vedrebbe mai.
+  build-windows:
+    needs: analyze-and-test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          # Fissata: vedi il commento nel lavoro di analisi.
+          flutter-version: 3.47.1
+          cache: true
+
+      - run: flutter pub get
+
+      # In release e non in debug: e' il profilo che passa dall'ottimizzatore
+      # e dal collegamento vero, quindi e' quello che puo' rompersi senza che
+      # una compilazione di debug se ne accorga.
+      - name: Build Windows
+        run: flutter build windows --release
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-release
+          path: build/windows/x64/runner/Release/
