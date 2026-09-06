@@ -677,6 +677,36 @@ In CI c'è un lavoro `build-windows` che compila e basta: i test girano già su
 Linux e ripeterli direbbe la stessa cosa, mentre un errore di MSVC o un pacchetto
 senza implementazione Windows lì non si vedrebbe mai.
 
+### L'app vera, su un sistema operativo vero
+
+Widget test e golden girano sul **motore di Flutter**, non su Android: i canali di
+piattaforma non ci sono, il file su disco nemmeno, e nessuna porta viene mai aperta
+davvero. Resta scoperto tutto ciò che sta sotto al livello Dart — `path_provider` che
+restituisce una cartella scrivibile, sqlite3 caricato dal sistema, un socket che si lega,
+il permesso `INTERNET` dichiarato nel manifest — e sono precisamente le cose che
+funzionano sulla macchina di chi sviluppa e falliscono su quella di qualcun altro.
+
+`integration_test/app_test.dart` monta il grafo di produzione senza sostituzioni: nessun
+doppio, nemmeno per il tempo. Quattro prove, scelte perché **nessun altro test le può
+fare**: l'app che parte su un file nuovo e ci ritrova un ordine dopo un riavvio, lo
+svuotamento che sopravvive allo stesso riavvio, il nodo primario che apre davvero una
+porta e risponde a chi bussa, e la diagnostica che riferisce chi ha scritto nel registro.
+
+**Il primo tentativo era vacuo, e l'ha detto la falsificazione.** Sostituendo la base dati
+con una in memoria, i test restavano verdi: ripompando lo stesso widget radice Flutter lo
+riconosce e riusa gli elementi, quindi `BlocProvider.create` non viene richiamato e il
+cubit vecchio sopravvive con dentro il repository di prima. Smontavo le registrazioni e
+lasciavo in piedi chi le usava, e il test misurava la memoria invece del file. Smontare
+l'albero prima di chiudere non è pulizia: è la sostanza del riavvio.
+
+I test usano una porta propria, la 53171. `HttpServer.bind` è chiamato con `shared: true`,
+quindi legare una porta già presa **riesce** e le richieste si dividono fra i due
+ascoltatori: con l'app vera aperta in modalità cassa sulla stessa macchina, i test
+avrebbero potuto parlare con lei e passare per la ragione sbagliata.
+
+In pipeline girano su un emulatore Android con KVM abilitato — senza, l'emulatore parte in
+emulazione software e impiega minuti invece di secondi.
+
 ## SOLID, punto per punto
 
 **Single Responsibility.** Il `SyncWorker` faceva cinque cose: orchestrare la coda,
@@ -766,9 +796,11 @@ e riaperto il file.
   fallirebbe a ogni ritocco della barra superiore. Il prezzo è che una regressione nella
   disposizione della pagina non viene vista da nessun golden: la coprono i widget test, che
   però guardano la struttura e non i pixel.
-- **Nessun test end-to-end su un dispositivo.** Widget test e golden girano sul motore di
-  Flutter, non su Android: il canale della piattaforma, i permessi e il ciclo di vita reale
-  non sono coperti. Servirebbe `integration_test` e un emulatore in pipeline.
+- **I test di integrazione coprono l'avvio, non il ciclo di vita.** Girano l'app vera su
+  un emulatore, ma non mettono alla prova ciò che succede quando Android la sospende, la
+  uccide in background o la ripristina: il «riavvio» dei test è un rimontaggio nello stesso
+  processo. Per quello servirebbe pilotare il sistema da fuori, con `adb`, e la pipeline
+  diventerebbe un'altra cosa.
 - **I golden non danno riscontro fuori da Linux.** Su Windows si saltano, quindi una
   regressione grafica introdotta qui si scopre solo dopo il push. L'alternativa — un
   riferimento per piattaforma — raddoppia le immagini da tenere allineate, e quella che non

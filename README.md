@@ -142,7 +142,9 @@ testa senza Flutter, senza database e senza rete.
 
 ```bash
 flutter pub get
-flutter test
+flutter test                                  # unità, widget e golden
+flutter test integration_test                 # l'app vera, sul dispositivo collegato
+flutter test integration_test -d windows      # oppure sulla build desktop
 ```
 
 I test coprono i casi che contano, non le righe facili:
@@ -192,6 +194,7 @@ I test coprono i casi che contano, non le righe facili:
 | **Elezione** | Su tre dispositivi con gli stessi dati se ne promuove esattamente uno, e una cassa che si annuncia ancora non viene sostituita |
 | Cassa cambiata di identità | Gli ordini locali tornano in coda e arrivano al registro nuovo — che altrimenti nascerebbe vuoto senza che nessuno segnali niente |
 | Il foglio della rete locale | Le tre scelte, l'indirizzo solo a chi serve, la porta che non si digita in nessun ruolo |
+| **L'app vera, su un sistema vero** | Parte su un file nuovo, l'ordine si ritrova dopo un riavvio, la cassa apre davvero una porta e risponde: `integration_test`, su emulatore in pipeline |
 
 Tempo, identificativi, log, politica di ritentativo, **contatore logico e politica di
 fusione** sono tutti iniettati: i test sul backoff girano in millisecondi invece di
@@ -328,7 +331,9 @@ dell'app e la coda riparte da sola quando la rete torna. Cosa manca per un uso r
       viene eletta una cassa nuova; il `SyncWorker` non è cambiato di una riga
 - [x] Build Windows, con un lavoro dedicato in CI — serve a fare il secondo dispositivo
       della prova in rete locale
-- [ ] Test end-to-end su emulatore con `integration_test`
+- [x] Test end-to-end con `integration_test`, su emulatore Android in pipeline — l'app
+      vera con il grafo di produzione: file su disco, sqlite3 di sistema, socket veri e il
+      permesso di rete del manifest, cioè tutto ciò che i widget test non attraversano
 
 ## Licenza
 
