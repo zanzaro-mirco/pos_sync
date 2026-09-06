@@ -43,3 +43,11 @@ const String deviceParam = 'device';
 
 /// Tipo di servizio annunciato via mDNS.
 const String lanServiceType = '_possync._tcp';
+
+/// Chiave del record TXT che dichiara il ruolo di chi si annuncia.
+///
+/// Serve all'elezione: senza, un tablet che cerca la cassa non potrebbe
+/// distinguerla dagli altri tablet in sala, che si annunciano anche loro per
+/// potersi far contare. Corta perché la specifica mDNS raccomanda chiavi di
+/// non più di nove caratteri.
+const String roleKey = 'role';

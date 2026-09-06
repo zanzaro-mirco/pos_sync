@@ -20,9 +20,12 @@ import '../features/orders/lan/lan_coordinator.dart';
 import '../features/orders/lan/nsd_discovery.dart';
 import '../features/orders/lan/peer_discovery.dart';
 import '../features/orders/lan/peer_retry_policy.dart';
+import '../features/orders/lan/primary_election.dart';
 import '../features/orders/lan/peer_settings.dart';
 import '../features/orders/sync/connectivity_monitor.dart';
+import '../features/orders/data/outbox_scheduler.dart';
 import '../features/orders/sync/inbound_merger.dart';
+import '../features/orders/sync/order_republisher.dart';
 import '../features/orders/sync/sync_worker.dart';
 import 'background_sync.dart';
 import 'clock.dart';
@@ -90,6 +93,31 @@ void setUpDependencies({bool demoMode = true}) {
   sl.registerLazySingleton<PeerDiscovery>(
       () => NsdDiscovery(logger: sl<Logger>()));
 
+  // Rimettere in coda tutti gli ordini locali. Serve dopo un'elezione, ed è
+  // registrato a parte perché il coordinatore non deve sapere cosa sia una
+  // coda: sa riconoscere che la cassa è cambiata, non cosa farne.
+  sl.registerLazySingleton<OrderRepublisher>(
+    () => OrderRepublisher(
+      orders: sl<OrderStore>(),
+      outbox: sl<OutboxStore>(),
+      transaction: sl<OrderOutboxTransaction>(),
+      scheduler: OutboxScheduler(
+        idGenerator: sl<IdGenerator>(),
+        clock: sl<Clock>(),
+      ),
+      logger: sl<Logger>(),
+    ),
+  );
+
+  sl.registerLazySingleton<PrimaryElection>(
+    () => PrimaryElection(
+      discovery: sl<PeerDiscovery>(),
+      settings: sl<PeerSettingsStore>(),
+      deviceId: sl<LogicalClockStore>().loadDeviceId,
+      logger: sl<Logger>(),
+    ),
+  );
+
   // Il backend che il resto del sistema vede è il coordinatore, non il finto:
   // sceglie da sé se parlare in processo, tenere il registro o chiederlo a un
   // altro tablet, e chi lo usa non deve sapere quale delle tre.
@@ -100,6 +128,8 @@ void setUpDependencies({bool demoMode = true}) {
       deviceId: sl<LogicalClockStore>().loadDeviceId,
       standalone: sl<FakeRemoteApi>(),
       discovery: sl<PeerDiscovery>(),
+      election: sl<PrimaryElection>(),
+      onPrimaryChanged: () => sl<OrderRepublisher>().republishAll(),
       logger: sl<Logger>(),
     ),
   );

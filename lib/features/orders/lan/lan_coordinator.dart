@@ -3,10 +3,12 @@ import '../data/order_registry.dart';
 import '../data/remote_api.dart';
 import '../domain/order.dart';
 import 'http_remote_api.dart';
+import 'lan_protocol.dart';
 import 'local_registry_api.dart';
 import 'order_server.dart';
 import 'peer_discovery.dart';
 import 'peer_settings.dart';
+import 'primary_election.dart';
 
 /// Tiene insieme il ruolo, il server e il backend, e li fa cambiare insieme.
 ///
@@ -29,12 +31,16 @@ class LanCoordinator implements RemoteApi {
     required Future<String> Function() deviceId,
     required RemoteApi standalone,
     PeerDiscovery discovery = const NoDiscovery(),
+    PrimaryElection? election,
+    Future<void> Function()? onPrimaryChanged,
     Logger logger = const SilentLogger(),
   })  : _settings = settings,
         _registry = registry,
         _deviceId = deviceId,
         _standalone = standalone,
         _discovery = discovery,
+        _election = election,
+        _onPrimaryChanged = onPrimaryChanged,
         _logger = logger;
 
   final PeerSettingsStore _settings;
@@ -42,16 +48,36 @@ class LanCoordinator implements RemoteApi {
   final Future<String> Function() _deviceId;
   final RemoteApi _standalone;
   final PeerDiscovery _discovery;
+
+  /// Chi decide se questo dispositivo deve prendere il posto della cassa.
+  /// Assente significa elezione disattivata: il ruolo lo cambia solo una
+  /// persona, dalle impostazioni.
+  final PrimaryElection? _election;
+
+  /// Da chiamare quando la cassa non è più la stessa di prima.
+  ///
+  /// Il coordinatore non sa cosa voglia dire riaccodare un ordine, e non deve:
+  /// sa solo riconoscere il momento in cui serve. Chi lo costruisce collega le
+  /// due cose.
+  final Future<void> Function()? _onPrimaryChanged;
+
   final Logger _logger;
 
   OrderServer? _server;
   HttpRemoteApi? _client;
   RemoteApi? _delegate;
   PeerSettings _current = const PeerSettings();
+  String? _lastPrimary;
 
   /// Se l'indirizzo in uso l'abbiamo trovato noi invece di leggerlo dalle
   /// impostazioni. Decide se ha senso ricercarlo quando smette di rispondere.
   bool _addressDiscovered = false;
+
+  /// L'ultima cassa con cui abbiamo parlato.
+  ///
+  /// Non viene azzerata dallo smontaggio, ed è il punto: serve proprio a
+  /// riconoscere che quella nuova è un'altra. Vive in memoria, quindi un
+  /// riavvio dell'app la dimentica — limite dichiarato, non svista.
 
   /// L'ultimo ruolo osservato, senza attese.
   ///
@@ -88,13 +114,18 @@ class LanCoordinator implements RemoteApi {
         );
         await server.start(port: wanted.primaryPort);
         _server = server;
-        await _announce(me, server.port ?? wanted.primaryPort);
+        await _announce(me, server.port ?? wanted.primaryPort, wanted.role);
         _logger.info('Rete locale: $wanted');
         // Il primario deposita la propria versione come chiunque altro: il
         // registro deve poterla tenere distinta da quelle dei follower.
         return _delegate = LocalRegistryApi(registry: _registry, deviceId: me);
 
       case PeerRole.follower:
+        // Anche chi è in sala si annuncia: un tablet che tace non è
+        // contabile, e l'elezione conta proprio i dispositivi noti. La porta
+        // annunciata è quella su cui ascolterà una volta promosso.
+        await _announce(me, lanPort, wanted.role);
+
         final PeerAddress? where = await _primaryAddress(wanted);
         if (where == null) {
           // Nessun delegato memorizzato di proposito: al prossimo giro si
@@ -108,6 +139,7 @@ class LanCoordinator implements RemoteApi {
           deviceId: me,
         );
         _client = client;
+        await _noticeIdentity(client);
         _logger.info('Rete locale: cassa a $where');
         return _delegate = client;
     }
@@ -135,9 +167,13 @@ class LanCoordinator implements RemoteApi {
   /// Una rete che filtra il multicast non deve impedire alla cassa di *essere*
   /// la cassa: chi conosce l'indirizzo la raggiunge lo stesso, ed è esattamente
   /// il caso per cui l'indirizzo manuale è rimasto.
-  Future<void> _announce(String deviceId, int port) async {
+  Future<void> _announce(String deviceId, int port, PeerRole role) async {
     try {
-      await _discovery.advertise(deviceId: deviceId, port: port);
+      await _discovery.advertise(
+        deviceId: deviceId,
+        port: port,
+        role: role,
+      );
     } catch (e) {
       _logger.warning('Annuncio in rete non riuscito: $e');
     }
@@ -157,6 +193,28 @@ class LanCoordinator implements RemoteApi {
     }
   }
 
+  /// Chiede alla cassa chi è, e se è cambiata lo fa sapere.
+  ///
+  /// La domanda utile non è «c'è qualcuno?» ma «c'è ancora quello di
+  /// prima?»: dopo un'elezione all'indirizzo noto risponde un dispositivo
+  /// diverso, con un registro che non sa niente dei nostri ordini. Una
+  /// connessione riuscita da sola non lo direbbe.
+  ///
+  /// Costa una richiesta, e solo quando il client viene ricostruito — cioè
+  /// quando l'indirizzo è cambiato, che è esattamente il caso in cui può
+  /// essere cambiata anche l'identità.
+  Future<void> _noticeIdentity(HttpRemoteApi client) async {
+    final String? theirs = await client.primaryDeviceId();
+    if (theirs == null) return;
+
+    final String? previous = _lastPrimary;
+    _lastPrimary = theirs;
+    if (previous == null || previous == theirs) return;
+
+    _logger.info('La cassa è cambiata: da $previous a $theirs');
+    await _onPrimaryChanged?.call();
+  }
+
   /// Chiude tutto. Da chiamare quando l'applicazione termina.
   Future<void> dispose() => _teardown();
 
@@ -173,9 +231,17 @@ class LanCoordinator implements RemoteApi {
   Future<T> _guard<T>(Future<T> Function(RemoteApi api) call) async {
     final RemoteApi api = await _resolve();
     try {
-      return await call(api);
+      final T result = await call(api);
+      _election?.succeeded();
+      return result;
     } on TransientApiFailure {
       if (_addressDiscovered) await _teardown();
+      if (_current.role == PeerRole.follower &&
+          await (_election?.failed() ?? Future<bool>.value(false))) {
+        // Promosso: si butta via il delegato perché al prossimo giro il
+        // ruolo letto dalle impostazioni è un altro.
+        await _teardown();
+      }
       rethrow;
     }
   }

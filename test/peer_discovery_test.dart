@@ -56,13 +56,16 @@ void main() {
       );
 
   /// Una cassa accesa su una porta effimera, con dentro [orders].
-  Future<OrderServer> tillWith(List<Order> orders) async {
+  Future<OrderServer> tillWith(
+    List<Order> orders, {
+    String deviceId = 'tablet-cassa',
+  }) async {
     final OrderRegistry registry = FakeServer();
     for (final Order o in orders) {
-      registry.store(o, 'tablet-cassa');
+      registry.store(o, deviceId);
     }
     final OrderServer server =
-        OrderServer(registry: registry, deviceId: 'tablet-cassa');
+        OrderServer(registry: registry, deviceId: deviceId);
     await server.start(port: 0);
     return server;
   }
@@ -73,17 +76,22 @@ void main() {
   late FakeDiscovery discovery;
   late LanCoordinator coordinator;
 
+  /// Quante volte è stato chiesto di rimettere in coda tutto.
+  late int republished;
+
   setUp(() {
     registry = FakeServer();
     standalone = FakeRemoteApi(deviceId: me, server: FakeServer());
     settings = InMemoryPeerSettings();
     discovery = FakeDiscovery();
+    republished = 0;
     coordinator = LanCoordinator(
       settings: settings,
       registry: registry,
       deviceId: () async => me,
       standalone: standalone,
       discovery: discovery,
+      onPrimaryChanged: () async => republished++,
     );
   });
 
@@ -135,6 +143,20 @@ void main() {
   });
 
   group('il tablet in sala cerca la cassa', () {
+    test('si annuncia anche lui, per potersi far contare', () async {
+      // Un tablet che tace non è contabile, e l'elezione promuove
+      // «l'identificativo più basso fra quelli noti».
+      final OrderServer till = await tillWith(<Order>[order('ord-1')]);
+      addTearDown(till.stop);
+      discovery.primary = PeerAddress(host: '127.0.0.1', port: till.port!);
+
+      await settings.save(const PeerSettings(role: PeerRole.follower));
+      await coordinator.fetchOrders();
+
+      expect(discovery.advertisedDevice, me);
+      expect(discovery.advertisedRole, PeerRole.follower);
+    });
+
     test('senza indirizzo digitato la trova da sé', () async {
       final OrderServer till = await tillWith(<Order>[order('ord-1')]);
       addTearDown(till.stop);
@@ -252,6 +274,60 @@ void main() {
 
       expect((await coordinator.fetchOrders()).single.id, 'dopo');
       expect(discovery.lookups, 2);
+    });
+
+    test('una cassa nuova fa ripubblicare tutto', () async {
+      // Dopo un'elezione all'indirizzo trovato risponde un dispositivo diverso,
+      // con un registro che non sa niente dei nostri ordini. Senza
+      // ripubblicare, i tablet smetterebbero di vedersi pur essendo tutti
+      // connessi — e nessuno segnalerebbe niente.
+      final OrderServer first = await tillWith(<Order>[order('prima')]);
+      discovery.primary = PeerAddress(host: '127.0.0.1', port: first.port!);
+      await settings.save(const PeerSettings(role: PeerRole.follower));
+
+      await coordinator.fetchOrders();
+      expect(republished, 0, reason: 'la prima cassa vista non è un cambio');
+      await first.stop();
+
+      await expectLater(
+        coordinator.fetchOrders(),
+        throwsA(isA<TransientApiFailure>()),
+      );
+
+      final OrderServer second = await tillWith(
+        <Order>[order('dopo')],
+        deviceId: 'tablet-promosso',
+      );
+      addTearDown(second.stop);
+      discovery.primary = PeerAddress(host: '127.0.0.1', port: second.port!);
+
+      await coordinator.fetchOrders();
+
+      expect(republished, 1);
+    });
+
+    test('la stessa cassa a un indirizzo nuovo non fa ripubblicare niente',
+        () async {
+      // Cambia l'indirizzo, non l'identità: il registro dall'altra parte è lo
+      // stesso e sa già tutto. Rispedirgli ogni ordine sarebbe lavoro inutile.
+      final OrderServer first = await tillWith(<Order>[order('prima')]);
+      discovery.primary = PeerAddress(host: '127.0.0.1', port: first.port!);
+      await settings.save(const PeerSettings(role: PeerRole.follower));
+
+      await coordinator.fetchOrders();
+      await first.stop();
+      await expectLater(
+        coordinator.fetchOrders(),
+        throwsA(isA<TransientApiFailure>()),
+      );
+
+      final OrderServer moved = await tillWith(<Order>[order('dopo')]);
+      addTearDown(moved.stop);
+      discovery.primary = PeerAddress(host: '127.0.0.1', port: moved.port!);
+
+      await coordinator.fetchOrders();
+
+      expect(republished, 0);
     });
 
     test('un indirizzo digitato non si dimentica', () async {
