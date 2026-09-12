@@ -767,6 +767,16 @@ e riaperto il file.
 
 ## Dove ho consapevolmente semplificato
 
+- **La firma di rilascio ripiega su quella di debug quando la chiave non c'è.**
+  L'alternativa era far fallire la compilazione, e avrebbe reso il repository compilabile
+  in rilascio solo da me. Il prezzo del ripiego è che `BUILD SUCCESSFUL` non significa più
+  «APK distribuibile»: lo paga la pipeline di rilascio, che legge il certificato dell'APK e
+  si ferma su `CN=Android Debug`. Verificato togliendo la chiave e ricompilando — l'APK
+  esce firmato di debug senza un avviso.
+- **La chiave è autofirmata e vale per entrambi i progetti dimostrativi.** Non è una
+  identità verificata da nessuno: dice solo che due APK con lo stesso nome di pacchetto
+  vengono dalla stessa mano. Per il Play Store servirebbe altro, e non è dove questi
+  progetti vanno.
 - **Nessuno use case fra cubit e repository.** Le operazioni sono due e dirette.
   Diventerebbero utili con logica composta fra più feature.
 - **Una sola migrazione, ma vera.** La versione 2 aggiunge colonne con `ALTER TABLE`

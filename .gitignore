@@ -15,3 +15,11 @@ test/failures/
 *.iml
 .DS_Store
 *.log
+
+# La chiave di firma e le sue password. Non sono qui dentro - stanno fuori dal
+# repository apposta - e questa riga serve a che non ci finiscano per sbaglio.
+# `keystore.properties.esempio` invece e' versionato: dice quali valori
+# esistono senza rivelarne nessuno.
+android/keystore.properties
+*.jks
+*.keystore

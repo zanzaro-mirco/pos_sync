@@ -233,6 +233,24 @@ dovrebbe accettare il rumore e ingoierebbe il segnale. Per rigenerarli c'è il w
 [`goldens.yml`](.github/workflows/goldens.yml), che pubblica le immagini come artefatto
 invece di committarle da solo.
 
+## Installarla senza compilarla
+
+Ogni tag `v*` produce una
+[Release](https://github.com/zanzaro-mirco/pos_sync/releases) con un APK **firmato**
+allegato: si scarica dal telefono e si installa, senza Android Studio e senza clonare
+niente.
+
+La chiave è stata creata apposta per i progetti dimostrativi e non sta nel repository —
+Android chiederà di autorizzare l'installazione, perché l'APK non viene dal Play Store. Il
+nome del file porta la versione del tag: `pos_sync-1.0.0.apk`.
+
+Perché la pipeline legge il certificato dell'APK prima di pubblicarlo: senza la chiave la
+compilazione **non fallisce**, ripiega sulla firma di debug e dice `BUILD SUCCESSFUL`. È
+un ripiego voluto — chi clona il repository deve poter compilare in rilascio senza avere
+una chiave altrui — ma è anche il modo esatto in cui una Release potrebbe non essere un
+rilascio senza che nessuno se ne accorga. Il controllo guarda l'APK, non la
+configurazione che avrebbe dovuto produrlo, e si ferma se trova `CN=Android Debug`.
+
 ## Provare la demo
 
 L'app parte con un backend simulato, e in modalità demo **il finto server segue la rete vera
@@ -331,6 +349,9 @@ dell'app e la coda riparte da sola quando la rete torna. Cosa manca per un uso r
       viene eletta una cassa nuova; il `SyncWorker` non è cambiato di una riga
 - [x] Build Windows, con un lavoro dedicato in CI — serve a fare il secondo dispositivo
       della prova in rete locale
+- [x] Release firmate e installabili — un tag `v*` costruisce l'APK con la chiave di
+      rilascio, ne verifica il certificato, lo installa su un emulatore per controllare
+      che l'applicazione parta davvero, e apre la Release con il file allegato
 - [x] Test end-to-end con `integration_test`, su emulatore Android in pipeline — l'app
       vera con il grafo di produzione: file su disco, sqlite3 di sistema, socket veri e il
       permesso di rete del manifest, cioè tutto ciò che i widget test non attraversano
