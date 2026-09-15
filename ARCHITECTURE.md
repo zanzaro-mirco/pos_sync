@@ -113,16 +113,15 @@ con un trasformatore per tipo di evento (`sequential`, `droppable`, `restartable
 Bloc elabora gli eventi in parallelo, esattamente come i metodi di un cubit: passare a Bloc
 senza sceglierne uno non cambia niente.
 
-**Dove la soglia si avvicina.** Due punti, misurati con un test scritto apposta prima di
-questo paragrafo e poi tolto:
+**Dove la soglia si è avvicinata.** Due punti, trovati con un test scritto apposta prima di
+questo paragrafo e poi corretti, ciascuno con un test che falliva prima della correzione:
 
-| Caso | Cosa succede oggi | Perché la risposta non è comunque un Bloc |
+| Caso | Cosa succedeva | Dove sta la correzione, e perché non è un Bloc |
 |---|---|---|
-| Due tocchi rapidi su «tieni il mio» | La decisione si scrive due volte: due tick dell'orologio logico, due voci in coda, due invii. Non si perde niente, perché il contenuto è identico e la seconda revisione batte la prima, ma è una modifica in più che gli altri dispositivi ricevono | `resolveConflict` è già idempotente in sequenza: un conflitto chiuso si ignora. In parallelo no, perché fra la lettura del conflitto e la sua rimozione ci sono delle `await`. Un `droppable` proteggerebbe il pulsante; la correzione nel repository protegge qualunque chiamante |
-| Un ordine creato mentre un drenaggio è in corso | Il drenaggio lanciato dal nuovo ordine viene scartato dal flag del worker, e l'ordine resta in coda finché qualcosa non ne fa partire un altro: un comando, il pulsante, un cambio di rete, o il lavoro di sistema entro quindici minuti | È un problema di trasformatore da manuale, ma nessuno dei tre va bene: `droppable` è quello che succede oggi, `sequential` accoderebbe un drenaggio per ogni comando. Serve «al massimo uno in attesa». E `drain()` lo chiamano anche `AutoSync` e il lavoro in background: la politica deve stare nel worker, sotto tutti i chiamanti |
+| Due tocchi rapidi su «tieni il mio» | La decisione si scriveva due volte: due tick dell'orologio logico, due voci in coda, due invii. Non si perdeva niente, perché il contenuto era identico e la seconda revisione batteva la prima, ma gli altri dispositivi ricevevano una modifica in più | Nel repository. `resolveConflict` era già idempotente in sequenza, perché un conflitto chiuso si ignora, ma non in parallelo: fra la lettura del conflitto e la sua rimozione ci sono delle `await`. Ora un insieme delle decisioni in corso fa uscire subito la seconda chiamata. Un `droppable` avrebbe protetto il pulsante; il repository protegge qualunque chiamante |
+| Un ordine creato mentre un drenaggio è in corso | Il flag del worker scartava il drenaggio lanciato dal nuovo ordine, e l'ordine restava in coda finché qualcosa non ne faceva partire un altro: un comando, il pulsante, un cambio di rete, o il lavoro di sistema entro quindici minuti. Con ogni probabilità è ciò che ha fatto fallire una volta in pipeline il test di integrazione della cassa: la sequenza è compatibile, ma non l'ho riprodotta sull'emulatore | Nel worker. Una chiamata a metà giro non avvia un drenaggio parallelo e non viene scartata: il giro in corso ne fa uno in più, e chi ha chiamato aspetta anche quello. Nessun trasformatore di `bloc_concurrency` lo esprime: `droppable` era il difetto, `sequential` accoderebbe un giro per ogni comando. E `drain()` lo chiamano anche `AutoSync` e il lavoro in background, quindi la politica deve stare sotto tutti i chiamanti |
 
-Tutti e due sono ancora aperti. In entrambi i casi il problema di concorrenza esiste davvero,
-ma sta sotto l'interfaccia.
+In entrambi i casi il problema di concorrenza esisteva davvero, ma stava sotto l'interfaccia.
 
 **Il punto in cui un Bloc si guadagnerebbe il posto** è un campo di ricerca che interroga il
 database a ogni lettera. Aspettare che l'utente smetta di scrivere e annullare la ricerca
@@ -827,11 +826,14 @@ e riaperto il file.
   dispositivi in fusi diversi andrebbe salvato anche l'offset.
 - **Il file non è cifrato.** Su un dispositivo di sala perso, gli ordini sono leggibili.
   Drift supporta SQLCipher e sarebbe un cambio di esecutore, non di codice.
-- **Concorrenza gestita con un flag booleano** nel worker. Basta finché i drenaggi partono
-  dallo stesso isolate. Con il lavoro in background ce ne sono due e i due flag non si
+- **La guardia di concorrenza del worker vive in memoria.** Un drenaggio chiesto a metà
+  giro ne produce uno in più invece di partire in parallelo, ma solo dentro lo stesso
+  isolate. Con il lavoro in background gli isolate sono due e le due guardie non si
   vedono: se coincidessero, lo stesso ordine partirebbe due volte. Non produce duplicati —
   l'idempotenza sull'id serve esattamente a questo — ma è una richiesta di rete sprecata, e
-  un lock vero starebbe in una riga di tabella invece che in un campo in memoria.
+  un lock vero starebbe in una riga di tabella invece che in un campo in memoria. La
+  guardia sulle decisioni dei conflitti ha lo stesso limite, ma lì non pesa: una decisione
+  parte solo dall'interfaccia, mai dal lavoro in background.
 - **Nessun ridrenaggio periodico ad app aperta.** Se un drenaggio riprogramma delle voci con
   backoff, quelle restano ferme finché la rete non cambia di nuovo o finché non interviene il
   lavoro di sistema. Un timer risolverebbe, al prezzo di risvegli inutili nel caso normale in

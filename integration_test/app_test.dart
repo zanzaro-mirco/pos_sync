@@ -241,11 +241,11 @@ void main() {
     addTearDown(visitatore.close);
 
     // Si aspetta che risponda invece di chiederlo una volta sola. Il server si
-    // accende alla prima sincronizzazione, e quella parte da sé quando l'ordine
-    // viene creato: un `drain()` esplicito qui non aiuterebbe, perché la
-    // guardia di concorrenza del worker lo farebbe uscire subito trovandone uno
-    // già in corso. È il difetto che ha fatto fallire questo test in pipeline
-    // mentre passava in locale.
+    // accende alla prima sincronizzazione, e quella parte da sé: all'avvio, e
+    // di nuovo quando l'ordine viene creato. Fino alla correzione del worker un
+    // drenaggio chiesto mentre ne girava un altro veniva scartato, e l'ordine
+    // restava in coda: è ciò che ha fatto fallire questo test in pipeline
+    // mentre passava in locale, e con ogni probabilità anche la volta dopo.
     await pumpUntil(
       tester,
       () async => await visitatore.primaryDeviceId() != null,

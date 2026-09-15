@@ -335,6 +335,42 @@ void main() {
       await room.close();
     });
 
+    test('due tocchi rapidi sulla stessa decisione la scrivono una volta sola',
+        () async {
+      // Una decisione su un conflitto già chiuso si ignorava anche prima, ma
+      // solo in sequenza: fra la lettura del conflitto e la sua rimozione ci
+      // sono delle attese, e due chiamate parallele lo trovavano entrambe
+      // aperto. Risultato: due revisioni, due voci in coda, due invii.
+      final Room room = await Room.open();
+      await room.a.repository
+          .changeState(orderId: room.orderId, state: OrderState.paid);
+      await room.b.repository
+          .addLines(orderId: room.orderId, lines: <OrderLineDraft>[croissant]);
+      await room.a.worker.drain();
+      await room.b.worker.drain();
+      await room.a.worker.drain();
+
+      final OrderConflict conflict =
+          (await room.a.store.openConflicts()).single;
+      final int counterBefore = room.a.clockStore.counter;
+
+      await Future.wait(<Future<void>>[
+        room.a.repository.resolveConflict(conflict.id, ConflictChoice.mine),
+        room.a.repository.resolveConflict(conflict.id, ConflictChoice.mine),
+      ]);
+
+      expect(await room.a.repository.pendingCount(), 1);
+      expect(room.a.clockStore.counter, counterBefore + 1,
+          reason: 'una decisione, una revisione');
+      expect(await room.a.store.openConflicts(), isEmpty);
+
+      await room.settle();
+      expect(shared(await room.orderOf(room.a)),
+          shared(await room.orderOf(room.b)));
+
+      await room.close();
+    });
+
     test('tenere il pagamento non fa sparire le righe arrivate dopo', () async {
       // È la ragione per cui è sicuro chiedere: nessuna delle due risposte
       // cancella una comanda.

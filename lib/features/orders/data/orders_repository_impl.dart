@@ -49,6 +49,9 @@ class OrdersRepositoryImpl implements OrdersRepository {
   final Clock _clock;
   final IdGenerator _ids;
 
+  /// I conflitti la cui decisione si sta scrivendo in questo momento.
+  final Set<String> _resolving = <String>{};
+
   @override
   Stream<OrdersSnapshot> watch() => _watcher.watch();
 
@@ -119,38 +122,49 @@ class OrdersRepositoryImpl implements OrdersRepository {
 
   @override
   Future<void> resolveConflict(String conflictId, ConflictChoice choice) async {
-    OrderConflict? conflict;
-    for (final OrderConflict c in await _conflicts.openConflicts()) {
-      if (c.id == conflictId) {
-        conflict = c;
-        break;
+    // Il controllo qui sotto ignora una decisione su un conflitto già chiuso,
+    // ma fra la lettura del conflitto e la sua rimozione ci sono delle attese:
+    // due tocchi rapidi lo trovavano entrambi aperto, e la stessa decisione si
+    // scriveva due volte, con due revisioni e due invii. Vince la prima
+    // chiamata; la seconda esce subito, anche se sceglieva l'altra versione.
+    if (!_resolving.add(conflictId)) return;
+    try {
+      OrderConflict? conflict;
+      for (final OrderConflict c in await _conflicts.openConflicts()) {
+        if (c.id == conflictId) {
+          conflict = c;
+          break;
+        }
       }
+      // Già risolto altrove, o l'app è stata riaperta nel frattempo: non è un
+      // errore, è la conseguenza di un dato condiviso.
+      if (conflict == null) return;
+
+      final Order winner =
+          choice == ConflictChoice.mine ? conflict.mine : conflict.theirs;
+
+      // Le righe si uniscono comunque: la decisione riguarda lo stato del
+      // tavolo, non cosa è stato ordinato. È la ragione per cui è sicuro
+      // chiedere — non esiste una risposta che faccia sparire una comanda.
+      final Resolution<List<OrderLine>> lines =
+          _lineMerge.merge(conflict.mine.lines, conflict.theirs.lines);
+
+      // La revisione è nuova e non quella della versione scelta: la decisione
+      // è essa stessa una modifica, e deve battere entrambe le versioni che
+      // l'hanno provocata anche sugli altri dispositivi. Senza, l'altro
+      // dispositivo rifonderebbe le stesse due e ricadrebbe nello stesso
+      // conflitto.
+      final Order resolved = conflict.mine.copyWith(
+        lines: lines is Resolved<List<OrderLine>> ? lines.value : null,
+        state: winner.state,
+        stateRevision: await _logical.tick(),
+      );
+
+      await _enqueue(resolved);
+      await _conflicts.removeConflict(conflictId);
+    } finally {
+      _resolving.remove(conflictId);
     }
-    // Già risolto altrove, o l'app è stata riaperta nel frattempo: non è un
-    // errore, è la conseguenza di un dato condiviso.
-    if (conflict == null) return;
-
-    final Order winner =
-        choice == ConflictChoice.mine ? conflict.mine : conflict.theirs;
-
-    // Le righe si uniscono comunque: la decisione riguarda lo stato del tavolo,
-    // non cosa è stato ordinato. È la ragione per cui è sicuro chiedere — non
-    // esiste una risposta che faccia sparire una comanda.
-    final Resolution<List<OrderLine>> lines =
-        _lineMerge.merge(conflict.mine.lines, conflict.theirs.lines);
-
-    // La revisione è nuova e non quella della versione scelta: la decisione è
-    // essa stessa una modifica, e deve battere entrambe le versioni che l'hanno
-    // provocata anche sugli altri dispositivi. Senza, l'altro dispositivo
-    // rifonderebbe le stesse due e ricadrebbe nello stesso conflitto.
-    final Order resolved = conflict.mine.copyWith(
-      lines: lines is Resolved<List<OrderLine>> ? lines.value : null,
-      state: winner.state,
-      stateRevision: await _logical.tick(),
-    );
-
-    await _enqueue(resolved);
-    await _conflicts.removeConflict(conflictId);
   }
 
   @override

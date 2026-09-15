@@ -87,7 +87,48 @@ class SyncWorker {
   final Clock _clock;
   final Logger _logger;
 
-  bool _running = false;
+  /// Il drenaggio in corso, se ce n'è uno.
+  Future<SyncResult>? _running;
+
+  /// Se qualcuno ha chiesto un drenaggio mentre ne girava già uno.
+  bool _requestedAgain = false;
+
+  /// Svuota la coda, e la risvuota finché qualcuno continua a chiederlo.
+  ///
+  /// Una chiamata che arriva a metà giro non avvia un secondo drenaggio in
+  /// parallelo, che invierebbe le stesse voci due volte. Ma non viene nemmeno
+  /// scartata, come succedeva prima: il giro in corso, finito, ne fa un altro,
+  /// e chi ha chiamato aspetta anche quello. Scartarla lasciava in coda un
+  /// ordine creato durante il drenaggio finché qualcos'altro non faceva
+  /// ripartire la coda — un comando, un cambio di rete, o il lavoro di sistema
+  /// dopo un quarto d'ora.
+  ///
+  /// Più chiamate durante lo stesso giro ne producono uno solo in più: il
+  /// secondo giro legge la coda intera, quindi vede tutto ciò che è arrivato.
+  Future<SyncResult> drain() {
+    final Future<SyncResult>? running = _running;
+    if (running != null) {
+      _requestedAgain = true;
+      return running;
+    }
+    return _running = _drainUntilQuiet();
+  }
+
+  Future<SyncResult> _drainUntilQuiet() async {
+    try {
+      SyncResult result = const SyncResult();
+      do {
+        _requestedAgain = false;
+        result = result + await _drainOnce();
+      } while (_requestedAgain);
+      return result;
+    } finally {
+      // Fra il controllo del ciclo e questa riga non c'è nessuna attesa: una
+      // chiamata non può infilarsi in mezzo, trovare il drenaggio ancora
+      // registrato e restare senza il suo giro.
+      _running = null;
+    }
+  }
 
   /// Un ciclo completo: prima spinge la coda, poi tira quello che hanno fatto
   /// gli altri.
@@ -96,28 +137,19 @@ class SyncWorker {
   /// contro un server che conosce già le modifiche locali: al contrario, ogni
   /// giro produrrebbe una fusione basata su una versione del server più
   /// vecchia di quella che stiamo per mandarle.
-  ///
-  /// Le chiamate concorrenti vengono ignorate: due drenaggi in parallelo
-  /// invierebbero le stesse voci due volte.
-  Future<SyncResult> drain() async {
-    if (_running) return const SyncResult();
-    _running = true;
-    try {
-      SyncResult result = const SyncResult();
-      final DateTime now = _clock.now();
+  Future<SyncResult> _drainOnce() async {
+    SyncResult result = const SyncResult();
+    final DateTime now = _clock.now();
 
-      for (final OutboxEntry entry in await _outbox.pendingOutbox()) {
-        result = result + await _process(entry, now);
-      }
-
-      final InboundMerger? inbound = _inbound;
-      if (inbound != null) {
-        result = result + SyncResult(inbound: await inbound.pull());
-      }
-      return result;
-    } finally {
-      _running = false;
+    for (final OutboxEntry entry in await _outbox.pendingOutbox()) {
+      result = result + await _process(entry, now);
     }
+
+    final InboundMerger? inbound = _inbound;
+    if (inbound != null) {
+      result = result + SyncResult(inbound: await inbound.pull());
+    }
+    return result;
   }
 
   Future<SyncResult> _process(OutboxEntry entry, DateTime now) async {

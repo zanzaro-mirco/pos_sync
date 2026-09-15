@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pos_sync/features/orders/data/remote_api.dart';
 import 'package:pos_sync/features/orders/domain/order.dart';
 import 'package:pos_sync/features/orders/domain/order_line.dart';
 import 'package:pos_sync/features/orders/domain/sync_status.dart';
@@ -146,4 +149,51 @@ void main() {
 
     expect(env.fake.receivedOrderIds.length, 1);
   });
+
+  test(
+      'un ordine creato durante un drenaggio parte in quel giro, non al prossimo',
+      () async {
+    // Prima della correzione la seconda chiamata tornava subito a mani vuote,
+    // e l'ordine restava in coda finché qualcos'altro non faceva ripartire la
+    // coda: un comando, un cambio di rete, o il lavoro di sistema dopo un quarto
+    // d'ora. Con ogni probabilità è anche ciò che ha fatto fallire una volta in
+    // pipeline il test di integrazione della cassa: il drenaggio dell'avvio
+    // poteva essere ancora in corso quando il test creava l'ordine.
+    final _GatedApi api = _GatedApi();
+    final TestEnv gated = TestEnv(remoteApi: api);
+    addTearDown(gated.dispose);
+
+    final Order first =
+        await gated.repository.createOrder(tableNumber: 1, lines: sampleLines);
+    final Future<SyncResult> running = gated.worker.drain();
+    await api.entered.future;
+
+    final Order second =
+        await gated.repository.createOrder(tableNumber: 2, lines: sampleLines);
+    final Future<SyncResult> requested = gated.worker.drain();
+    api.gate.complete();
+
+    // Chi ha chiesto il drenaggio a metà giro aspetta anche il giro in più:
+    // quando la sua chiamata torna, il suo ordine è già partito.
+    await requested;
+    expect(api.storedOrderIds, <String>{first.id, second.id});
+    expect(await gated.store.pendingOutbox(), isEmpty);
+
+    await running;
+    expect(api.receivedOrderIds, hasLength(2), reason: 'nessun doppio invio');
+  });
+}
+
+/// Un backend che trattiene il primo invio finché il test non lo lascia
+/// andare: è il modo di avere un drenaggio sicuramente a metà.
+class _GatedApi extends FakeRemoteApi {
+  final Completer<void> entered = Completer<void>();
+  final Completer<void> gate = Completer<void>();
+
+  @override
+  Future<void> submitOrder(Order order) async {
+    if (!entered.isCompleted) entered.complete();
+    await gate.future;
+    return super.submitOrder(order);
+  }
 }

@@ -158,6 +158,7 @@ I test coprono i casi che contano, non le righe facili:
 | Errore permanente | Nessun ritentativo |
 | Voce orfana | La coda si ripulisce da sola |
 | Due `drain()` concorrenti | Un solo invio |
+| Ordine creato a metà drenaggio | Parte nello stesso giro invece di aspettare il prossimo innesco, e chi ha chiesto il drenaggio aspetta anche quello |
 | JSON incompleto o malformato | Il record si scarta, l'app non crasha |
 | Politica di ritentativo | Testata da sola, senza passare dal worker |
 | **Contratto del deposito** | La stessa suite passa su `InMemoryOrderStore` e su `DriftOrderStore` |
@@ -179,6 +180,7 @@ I test coprono i casi che contano, non le righe facili:
 | Modifica fatta dopo aver visto quella altrui | Vince, anche se il contatore di chi la fa sarebbe più basso |
 | **Pagato contro righe mai viste** | Non si fonde in silenzio: si apre un conflitto su entrambi i dispositivi |
 | Decisione presa su un dispositivo | Chiude il conflitto anche sull'altro: nessuno decide due volte |
+| Due tocchi rapidi sulla stessa decisione | Una revisione e una voce in coda, non due |
 | Qualunque delle due scelte | Nessuna riga sparisce — è la ragione per cui è sicuro chiedere |
 | Un dispositivo offline | Non blocca l'altro, e al rientro converge |
 | **Migrazione dello schema v1 → v3 e v2 → v3** | Una base dati scritta da una versione precedente, con dentro ordini non ancora inviati, arriva intatta |
