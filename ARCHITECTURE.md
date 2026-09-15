@@ -92,6 +92,43 @@ Dopo il refactoring **osserva un flusso** invece di ricaricare: prima ogni creaz
 di ordine produceva due letture complete della lista, una dopo il salvataggio e una
 dopo la sincronizzazione. Ora la sorgente notifica i cambiamenti.
 
+### Perché Cubit e non Bloc
+
+In questo progetto non c'è un Bloc, e aggiungerne uno dove non serve sarebbe una classe
+scritta per far tornare una parola del curriculum, non per il codice.
+
+**Perché basta un Cubit.** Il cubit ha un solo ingresso che scorre nel tempo, il flusso del
+repository, e lo trasforma in stato dentro un listener sincrono. Tutto il resto sono
+comandi: la schermata chiama `addOrder`, `addLines`, `changeState`, `resolveConflict` e
+`sync`, e ognuno è una chiamata diretta che delega. Con un Bloc ciascuno diventerebbe una
+classe evento con gli stessi argomenti del metodo, più un gestore che la spacchetta: cinque
+classi che non aggiungono informazione, e test in cui `bloc.add(AddOrder(...))` sostituisce
+`await cubit.addOrder(...)` perdendo proprio l'`await`.
+
+**Quando servirebbe.** Quando conta *come* arrivano gli eventi, e non solo cosa fanno:
+accodarli uno dopo l'altro, scartarli mentre uno è in corso, ritardarli finché l'utente
+smette di scrivere, annullare il precedente quando arriva il successivo. Un Bloc lo esprime
+con un trasformatore per tipo di evento (`sequential`, `droppable`, `restartable` di
+`bloc_concurrency`); un Cubit non ha un posto dove scriverlo. Senza trasformatore, però, un
+Bloc elabora gli eventi in parallelo, esattamente come i metodi di un cubit: passare a Bloc
+senza sceglierne uno non cambia niente.
+
+**Dove la soglia si avvicina.** Due punti, misurati con un test scritto apposta prima di
+questo paragrafo e poi tolto:
+
+| Caso | Cosa succede oggi | Perché la risposta non è comunque un Bloc |
+|---|---|---|
+| Due tocchi rapidi su «tieni il mio» | La decisione si scrive due volte: due tick dell'orologio logico, due voci in coda, due invii. Non si perde niente, perché il contenuto è identico e la seconda revisione batte la prima, ma è una modifica in più che gli altri dispositivi ricevono | `resolveConflict` è già idempotente in sequenza: un conflitto chiuso si ignora. In parallelo no, perché fra la lettura del conflitto e la sua rimozione ci sono delle `await`. Un `droppable` proteggerebbe il pulsante; la correzione nel repository protegge qualunque chiamante |
+| Un ordine creato mentre un drenaggio è in corso | Il drenaggio lanciato dal nuovo ordine viene scartato dal flag del worker, e l'ordine resta in coda finché qualcosa non ne fa partire un altro: un comando, il pulsante, un cambio di rete, o il lavoro di sistema entro quindici minuti | È un problema di trasformatore da manuale, ma nessuno dei tre va bene: `droppable` è quello che succede oggi, `sequential` accoderebbe un drenaggio per ogni comando. Serve «al massimo uno in attesa». E `drain()` lo chiamano anche `AutoSync` e il lavoro in background: la politica deve stare nel worker, sotto tutti i chiamanti |
+
+Tutti e due sono ancora aperti. In entrambi i casi il problema di concorrenza esiste davvero,
+ma sta sotto l'interfaccia.
+
+**Il punto in cui un Bloc si guadagnerebbe il posto** è un campo di ricerca che interroga il
+database a ogni lettera. Aspettare che l'utente smetta di scrivere e annullare la ricerca
+precedente quando arriva la nuova (`restartable`, con un ritardo) è un'intenzione
+dell'interfaccia, e non c'è nessun altro chiamante a cui spostarla.
+
 ## Pattern usati
 
 | Pattern | Dove | Perché |
