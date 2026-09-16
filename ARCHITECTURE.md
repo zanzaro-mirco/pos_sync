@@ -890,7 +890,11 @@ prova a due dispositivi, e non vale un'eccezione a quella avvertenza.
 
 Spento non vuol dire gratis. `firebase_core` ha un'implementazione Windows, e la sua
 compilazione **scarica l'SDK C++ intero, 918 MB**, anche se nessuna riga lo usa. È il prezzo
-di una dipendenza che non si può escludere per piattaforma.
+di una dipendenza che non si può escludere per piattaforma. In pipeline il lavoro
+`build-windows` durava fra 3 minuti e 38 secondi e 3 minuti e 52 secondi nelle ultime quattro
+esecuzioni senza Firebase, e 5 minuti e 51 secondi nella prima con: **due minuti in più a ogni
+push**, su una misura sola. Una cache dell'SDK potrebbe recuperarne una parte, al prezzo di un
+passo in più da tenere allineato alla versione di `firebase_core`. Non l'ho provata.
 
 Sul telefono, l'APK di rilascio passa da 59.120.261 a 60.367.130 byte: **1,2 MB in più**.
 
