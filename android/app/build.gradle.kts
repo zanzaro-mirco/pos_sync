@@ -21,7 +21,7 @@ fun signingValue(property: String, variable: String): String? =
 val releaseStore: String? = signingValue("storeFile", "KEYSTORE_PATH")
 
 android {
-    namespace = "dev.miircozanzaro.pos_sync"
+    namespace = "dev.mircozanzaro.pos_sync"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -31,7 +31,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "dev.miircozanzaro.pos_sync"
+        applicationId = "dev.mircozanzaro.pos_sync"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         // Nome e numero di versione vengono da `pubspec.yaml`, e in fase di

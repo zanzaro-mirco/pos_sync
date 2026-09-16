@@ -118,9 +118,9 @@ jobs:
             # riga, con `||` invece che con un blocco.
             adb install -r "pos_sync-$VERSIONE.apk"
             adb logcat -c
-            adb shell monkey -p dev.miircozanzaro.pos_sync -c android.intent.category.LAUNCHER 1
+            adb shell monkey -p dev.mircozanzaro.pos_sync -c android.intent.category.LAUNCHER 1
             sleep 10
-            adb shell pidof dev.miircozanzaro.pos_sync > /dev/null || { echo "::error::L'applicazione non è viva dieci secondi dopo l'avvio."; adb logcat -d -b crash; exit 1; }
+            adb shell pidof dev.mircozanzaro.pos_sync > /dev/null || { echo "::error::L'applicazione non è viva dieci secondi dopo l'avvio."; adb logcat -d -b crash; exit 1; }
             echo "Viva dopo l'avvio."
 
       - name: Release con l'APK allegato
