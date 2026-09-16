@@ -60,6 +60,26 @@ jobs:
             exit 1
           fi
 
+      # La configurazione di Firebase. Non e' una password, ma non e' nel
+      # repository: chi la ha puo' mandare al progetto crash e metriche finti.
+      # Qui il ripiego che vale per chi clona - compilare senza, con
+      # l'osservabilita' spenta - non e' accettabile: un rilascio senza crash
+      # registrati e senza interruttore remoto e' esattamente il rilascio in
+      # cui un bug grave non si vede e non si ferma.
+      - name: Configurazione di Firebase dal segreto
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -z "$GOOGLE_SERVICES_JSON" ]; then
+            echo "::error::Manca il segreto GOOGLE_SERVICES_JSON. Senza, l'APK partirebbe senza crash registrati, senza metriche e senza interruttore remoto."
+            exit 1
+          fi
+          printf '%s' "$GOOGLE_SERVICES_JSON" > android/app/google-services.json
+          # Come per il keystore: un segreto incollato a meta' deve fermarsi
+          # qui, con un messaggio che dice perche', e non dentro il plugin dei
+          # servizi Google con uno che parla d'altro.
+          python3 -m json.tool android/app/google-services.json > /dev/null || { echo "::error::Il segreto GOOGLE_SERVICES_JSON non e' JSON valido: probabile che sia stato troncato quando e' stato incollato."; exit 1; }
+
       # `v1.2.0` diventa `1.2.0`. Il nome della versione viene da qui e da
       # nessun altro posto; il numero progressivo è quello dell'esecuzione,
       # che cresce da solo e non si ripete mai.
@@ -94,6 +114,17 @@ jobs:
             exit 1
           fi
 
+      # Stesso principio della firma: si guarda l'APK, non il file che avrebbe
+      # dovuto finirci. Senza `google-services.json` Gradle non applica i
+      # plugin di Firebase e compila lo stesso, di proposito; questa risorsa
+      # la scrive solo il plugin dei servizi Google, quindi se manca
+      # l'osservabilita' e' spenta.
+      - name: Firebase dentro l'APK, non solo nella configurazione
+        run: |
+          AAPT2=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
+          "$AAPT2" dump resources "pos_sync-$VERSIONE.apk" | grep -q "string/google_app_id" || { echo "::error::Nell'APK non c'e' la configurazione di Firebase: il plugin dei servizi Google non e' stato applicato."; exit 1; }
+          echo "Configurazione di Firebase presente."
+
       - name: Abilita KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
@@ -105,6 +136,10 @@ jobs:
       # dal fatto che il file esista. Questo lo installa su un dispositivo vero
       # e verifica che l'applicazione sia ancora viva qualche secondo dopo
       # l'avvio: è il minimo che distingue un APK da un APK che funziona.
+      #
+      # L'immagine è senza Play Services, e da quando c'è Firebase non è più
+      # una scelta neutra: è il caso di un tablet da cassa economico, e l'app
+      # deve partire anche lì.
       - name: Si installa e parte
         uses: reactivecircus/android-emulator-runner@v2
         with:

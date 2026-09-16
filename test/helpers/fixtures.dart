@@ -4,6 +4,7 @@ import 'package:pos_sync/core/clock.dart';
 import 'package:pos_sync/core/id_generator.dart';
 import 'package:pos_sync/core/logger.dart';
 import 'package:pos_sync/core/logical_clock.dart';
+import 'package:pos_sync/core/product_metrics.dart';
 import 'package:pos_sync/features/orders/data/in_memory_order_store.dart';
 import 'package:pos_sync/features/orders/data/orders_repository_impl.dart';
 import 'package:pos_sync/features/orders/data/remote_api.dart';
@@ -44,6 +45,7 @@ class TestEnv {
     String idPrefix = 'id',
     bool withInbound = true,
     RemoteApi? remoteApi,
+    ProductMetrics metrics = const NoProductMetrics(),
   }) {
     clock = FakeClock(now ?? DateTime(2026, 7, 27, 12));
     store = InMemoryOrderStore();
@@ -88,6 +90,7 @@ class TestEnv {
       retryPolicy: BackoffRetryPolicy(
         backoff: Backoff(maxAttempts: maxAttempts, random: Random(1)),
       ),
+      metrics: metrics,
     );
   }
 

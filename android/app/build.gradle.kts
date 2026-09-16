@@ -6,6 +6,19 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Firebase si accende solo se la sua configurazione c'è.
+//
+// `google-services.json` non è nel repository: chi clona, e la pipeline che
+// esegue i test, compila senza. Senza il file i due plugin non si applicano,
+// perché quello dei servizi Google fallirebbe la compilazione, e l'app parte
+// con l'osservabilità spenta invece di non partire. La pipeline di rilascio,
+// che il file lo ricostruisce da un segreto, verifica che nell'APK sia
+// arrivato: il ripiego silenzioso qui è voluto, lì no.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+    apply(plugin = "com.google.firebase.crashlytics")
+}
+
 // La chiave di firma non sta nel repository, e non ci sta nemmeno il suo
 // percorso. Arriva da `android/keystore.properties` quando si compila a mano,
 // oppure dalle variabili d'ambiente che la pipeline riempie dai segreti del

@@ -17,6 +17,7 @@ import '../features/orders/data/second_device.dart';
 import '../features/orders/domain/orders_repository.dart';
 import '../features/orders/sync/auto_sync.dart';
 import '../features/orders/sync/conflict_policy.dart';
+import '../features/orders/sync/drain_on_flag_change.dart';
 import '../features/orders/lan/lan_check.dart';
 import '../features/orders/lan/lan_coordinator.dart';
 import '../features/orders/lan/nsd_discovery.dart';
@@ -31,9 +32,12 @@ import '../features/orders/sync/order_republisher.dart';
 import '../features/orders/sync/sync_worker.dart';
 import 'background_sync.dart';
 import 'clock.dart';
+import 'feature_flags.dart';
 import 'id_generator.dart';
 import 'logger.dart';
 import 'logical_clock.dart';
+import 'observability.dart';
+import 'product_metrics.dart';
 
 final GetIt sl = GetIt.instance;
 
@@ -48,8 +52,15 @@ final GetIt sl = GetIt.instance;
 /// repository, worker e presentazione non sanno che è successo.
 ///
 /// `driftDatabase` apre il file pigramente, alla prima interrogazione, quindi
-/// questa funzione resta sincrona e `main()` non cambia.
-void setUpDependencies({bool demoMode = true}) {
+/// questa funzione resta sincrona.
+///
+/// [observability] arriva da fuori già pronta, perché accendere Firebase è
+/// asincrono e può non riuscire. Il predefinito è l'app senza servizi remoti:
+/// i test e la build per Windows non devono sapere che Firebase esiste.
+void setUpDependencies({
+  bool demoMode = true,
+  Observability observability = Observability.off,
+}) {
   sl.registerLazySingleton<AppDatabase>(
       () => AppDatabase(driftDatabase(name: 'pos_sync')));
   sl.registerLazySingleton<DriftOrderStore>(
@@ -71,7 +82,9 @@ void setUpDependencies({bool demoMode = true}) {
 
   sl.registerLazySingleton<Clock>(SystemClock.new);
   sl.registerLazySingleton<IdGenerator>(UuidGenerator.new);
-  sl.registerLazySingleton<Logger>(SilentLogger.new);
+  sl.registerLazySingleton<Logger>(() => observability.logger);
+  sl.registerLazySingleton<FeatureFlags>(() => observability.flags);
+  sl.registerLazySingleton<ProductMetrics>(() => observability.metrics);
 
   // Un registro solo, condiviso fra la modalità dimostrativa e la rete
   // locale: è ciò che *questo* dispositivo sa degli altri, e averne due
@@ -144,6 +157,7 @@ void setUpDependencies({bool demoMode = true}) {
       discovery: sl<PeerDiscovery>(),
       election: sl<PrimaryElection>(),
       onPrimaryChanged: () => sl<OrderRepublisher>().republishAll(),
+      flags: sl<FeatureFlags>(),
       logger: sl<Logger>(),
     ),
   );
@@ -215,6 +229,7 @@ void setUpDependencies({bool demoMode = true}) {
       // tavoli ancora occupati. Non è servito toccare il worker — la politica
       // era già una strategia sostituibile.
       retryPolicy: PeerAwareRetryPolicy(coordinator: sl<LanCoordinator>()),
+      metrics: sl<ProductMetrics>(),
     ),
   );
 
@@ -245,6 +260,13 @@ void startBackgroundServices({bool demoMode = true}) {
   }
 
   sl<AutoSync>().start();
+
+  // La coda gira appena un flag cambia: è ciò che lo fa valere subito.
+  drainOnFlagChange(
+    flags: sl<FeatureFlags>(),
+    worker: sl<SyncWorker>(),
+    logger: sl<Logger>(),
+  );
 
   // Non attesa di proposito: pianificare un lavoro di sistema passa dal canale
   // della piattaforma, e `main()` non deve restare fermo su una promessa che

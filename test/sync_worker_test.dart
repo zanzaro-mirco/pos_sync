@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pos_sync/core/product_metrics.dart';
 import 'package:pos_sync/features/orders/data/remote_api.dart';
 import 'package:pos_sync/features/orders/domain/order.dart';
 import 'package:pos_sync/features/orders/domain/order_line.dart';
@@ -182,6 +183,44 @@ void main() {
     await running;
     expect(api.receivedOrderIds, hasLength(2), reason: 'nessun doppio invio');
   });
+
+  group('metrica di prodotto', () {
+    late RecordedMetrics metrics;
+    late TestEnv measured;
+
+    setUp(() {
+      metrics = RecordedMetrics();
+      measured = TestEnv(metrics: metrics);
+    });
+    tearDown(() => measured.dispose());
+
+    test('conta gli invii riusciti, una volta per giro', () async {
+      await measured.repository.createOrder(tableNumber: 1, lines: sampleLines);
+      await measured.repository.createOrder(tableNumber: 2, lines: sampleLines);
+
+      await measured.worker.drain();
+
+      expect(metrics.synced, <int>[2]);
+    });
+
+    test('un giro senza invii non produce nessun evento', () async {
+      // Un evento con zero dentro sporcherebbe la serie: una sera senza
+      // ordini e una sera in cui la coda gira a vuoto ogni minuto
+      // sembrerebbero la stessa cosa.
+      await measured.worker.drain();
+
+      expect(metrics.synced, isEmpty);
+    });
+
+    test('un invio fallito non conta', () async {
+      measured.fake.online = false;
+      await measured.repository.createOrder(tableNumber: 1, lines: sampleLines);
+
+      await measured.worker.drain();
+
+      expect(metrics.synced, isEmpty);
+    });
+  });
 }
 
 /// Un backend che trattiene il primo invio finché il test non lo lascia
@@ -196,4 +235,11 @@ class _GatedApi extends FakeRemoteApi {
     await gate.future;
     return super.submitOrder(order);
   }
+}
+
+class RecordedMetrics implements ProductMetrics {
+  final List<int> synced = <int>[];
+
+  @override
+  void ordersSynced(int count) => synced.add(count);
 }

@@ -1,3 +1,4 @@
+import '../../../core/feature_flags.dart';
 import '../../../core/logger.dart';
 import '../data/order_registry.dart';
 import '../data/remote_api.dart';
@@ -33,6 +34,7 @@ class LanCoordinator implements RemoteApi {
     PeerDiscovery discovery = const NoDiscovery(),
     PrimaryElection? election,
     Future<void> Function()? onPrimaryChanged,
+    FeatureFlags flags = const FixedFeatureFlags(),
     Logger logger = const SilentLogger(),
   })  : _settings = settings,
         _registry = registry,
@@ -41,6 +43,7 @@ class LanCoordinator implements RemoteApi {
         _discovery = discovery,
         _election = election,
         _onPrimaryChanged = onPrimaryChanged,
+        _flags = flags,
         _logger = logger;
 
   final PeerSettingsStore _settings;
@@ -60,6 +63,9 @@ class LanCoordinator implements RemoteApi {
   /// sa solo riconoscere il momento in cui serve. Chi lo costruisce collega le
   /// due cose.
   final Future<void> Function()? _onPrimaryChanged;
+
+  /// L'interruttore remoto della rete locale.
+  final FeatureFlags _flags;
 
   final Logger _logger;
 
@@ -95,7 +101,7 @@ class LanCoordinator implements RemoteApi {
   /// ragione per cui può stare sul percorso di ogni sincronizzazione senza
   /// riaprire un server a ogni giro.
   Future<RemoteApi> _resolve() async {
-    final PeerSettings wanted = await _settings.load();
+    final PeerSettings wanted = _allowed(await _settings.load());
     if (_delegate != null && wanted == _current) return _delegate!;
 
     await _teardown();
@@ -144,6 +150,21 @@ class LanCoordinator implements RemoteApi {
         return _delegate = client;
     }
   }
+
+  /// Le impostazioni salvate, se l'interruttore remoto le lascia valere.
+  ///
+  /// Spento, questo dispositivo si comporta come se nessuno avesse configurato
+  /// la rete locale: niente server, niente annunci, niente elezione — che
+  /// parte solo da chi è in sala. Le impostazioni **non si toccano**: il
+  /// flag è una decisione di chi gestisce il parco, il ruolo è una decisione
+  /// di chi ha installato il tablet, e riaccendere deve restituire a ognuno
+  /// quello che aveva.
+  ///
+  /// Qui, e non in chi decide quando sincronizzare, perché questo è il punto
+  /// da cui passano tutte le strade verso la rete locale. Un interruttore
+  /// messo altrove ne lascerebbe aperta qualcuna.
+  PeerSettings _allowed(PeerSettings configured) =>
+      _flags.peerSyncEnabled ? configured : const PeerSettings();
 
   /// Dove bussare, se si riesce a saperlo.
   ///

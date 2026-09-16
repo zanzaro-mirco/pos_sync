@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'core/di.dart';
+import 'core/feature_flags.dart';
+import 'core/firebase/firebase_observability.dart';
+import 'core/observability.dart';
 import 'features/orders/data/demo_reset.dart';
 import 'features/orders/data/second_device.dart';
 import 'features/orders/lan/lan_check.dart';
@@ -17,12 +20,16 @@ import 'features/orders/presentation/peer_settings_sheet.dart';
 import 'features/orders/presentation/table_number_dialog.dart';
 import 'features/orders/sync/sync_worker.dart';
 
-void main() {
+Future<void> main() async {
   // Serve prima di interrogare qualunque plugin: `startBackgroundServices`
   // chiede subito lo stato della rete, e `runApp` inizializzerebbe il binding
   // troppo tardi.
   WidgetsFlutterBinding.ensureInitialized();
-  setUpDependencies();
+  // Prima di tutto il resto, perché i gestori dei crash vanno installati
+  // prima che possa esserci un crash. L'attesa è solo locale: la lettura dei
+  // flag dal cloud parte e non si aspetta.
+  final Observability observability = await startObservability();
+  setUpDependencies(observability: observability);
   startBackgroundServices();
   runApp(const PosSyncApp());
 }
@@ -90,6 +97,7 @@ class _Home extends StatelessWidget {
       isScrollControlled: true,
       builder: (BuildContext sheet) => PeerSettingsSheet(
         initial: current,
+        remotelyDisabled: !sl<FeatureFlags>().peerSyncEnabled,
         localAddresses: addresses,
         onCheck: (PeerSettings chosen) => sl<LanChecker>().check(chosen),
         onSave: (PeerSettings chosen) async {

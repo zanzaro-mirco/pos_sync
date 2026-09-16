@@ -5,6 +5,7 @@ import 'package:workmanager/workmanager.dart';
 import '../features/orders/data/local/app_database.dart';
 import '../features/orders/sync/sync_worker.dart';
 import 'di.dart';
+import 'firebase/firebase_observability.dart';
 
 /// Nome con cui Android conosce il lavoro periodico.
 ///
@@ -64,7 +65,14 @@ Future<bool> _drainQueue() async {
   // dove il grafo esiste già: registrarlo di nuovo solleverebbe un'eccezione, e
   // chiudere il database sotto i piedi dell'interfaccia sarebbe peggio.
   final bool ownsGraph = !sl.isRegistered<SyncWorker>();
-  if (ownsGraph) setUpDependencies();
+  // Anche qui Firebase: un ordine consegnato di notte dal lavoro di sistema
+  // conta nella metrica come uno consegnato ad app aperta, e un crash qui è
+  // il più invisibile di tutti, perché nessuno sta guardando lo schermo.
+  if (ownsGraph) {
+    setUpDependencies(
+      observability: await startObservability(background: true),
+    );
+  }
 
   try {
     final SyncResult outcome = await sl<SyncWorker>().drain();

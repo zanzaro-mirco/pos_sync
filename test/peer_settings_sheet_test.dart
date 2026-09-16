@@ -20,6 +20,7 @@ void main() {
     PeerSettings initial = const PeerSettings(),
     List<String> addresses = const <String>[],
     Future<LanCheck> Function(PeerSettings)? onCheck,
+    bool remotelyDisabled = false,
   }) async {
     final List<PeerSettings> saved = <PeerSettings>[];
     await tester.pumpWidget(
@@ -31,6 +32,7 @@ void main() {
             localAddresses: addresses,
             onSave: saved.add,
             onCheck: onCheck,
+            remotelyDisabled: remotelyDisabled,
           ),
         ),
       ),
@@ -247,5 +249,20 @@ void main() {
     expect(find.byKey(const Key('peer-host-field')), findsOneWidget,
         reason: 'il ruolo salvato decide cosa si vede all\'apertura');
     expect(find.text('10.0.0.4'), findsOneWidget);
+  });
+
+  testWidgets('sospesa da remoto, il foglio lo dice',
+      (WidgetTester tester) async {
+    // Chi imposta la cassa senza sapere che la rete locale è spenta non vede
+    // arrivare niente, e cerca il guasto nel posto sbagliato.
+    await show(tester, remotelyDisabled: true);
+
+    expect(find.byKey(const Key('peer-remotely-disabled')), findsOneWidget);
+  });
+
+  testWidgets('accesa, del flag non si parla', (WidgetTester tester) async {
+    await show(tester);
+
+    expect(find.byKey(const Key('peer-remotely-disabled')), findsNothing);
   });
 }

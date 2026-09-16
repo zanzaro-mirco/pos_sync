@@ -1,5 +1,6 @@
 import '../../../core/clock.dart';
 import '../../../core/logger.dart';
+import '../../../core/product_metrics.dart';
 import '../data/order_store.dart';
 import '../data/remote_api.dart';
 import '../domain/order.dart';
@@ -67,13 +68,15 @@ class SyncWorker {
     InboundMerger? inbound,
     Clock clock = const SystemClock(),
     Logger logger = const SilentLogger(),
+    ProductMetrics metrics = const NoProductMetrics(),
   })  : _orders = orderStore,
         _outbox = outboxStore,
         _api = api,
         _inbound = inbound,
         _retryPolicy = retryPolicy ?? BackoffRetryPolicy(),
         _clock = clock,
-        _logger = logger;
+        _logger = logger,
+        _metrics = metrics;
 
   final OrderStore _orders;
   final OutboxStore _outbox;
@@ -86,6 +89,13 @@ class SyncWorker {
   final InboundMerger? _inbound;
   final Clock _clock;
   final Logger _logger;
+
+  /// Dove finisce il conto degli invii riusciti.
+  ///
+  /// Qui e non in chi chiama `drain()`: i chiamanti sono tre — la rete che
+  /// torna, un comando, il lavoro di sistema — e contare in uno solo di loro
+  /// perderebbe gli altri due senza che niente lo segnali.
+  final ProductMetrics _metrics;
 
   /// Il drenaggio in corso, se ce n'è uno.
   Future<SyncResult>? _running;
@@ -121,6 +131,9 @@ class SyncWorker {
         _requestedAgain = false;
         result = result + await _drainOnce();
       } while (_requestedAgain);
+      // Un invio riuscito conta uno, quindi un ordine a cui si aggiunge una
+      // riga ne conta due. È la misura del lavoro della coda, non dei coperti.
+      if (result.sent > 0) _metrics.ordersSynced(result.sent);
       return result;
     } finally {
       // Fra il controllo del ciclo e questa riga non c'è nessuna attesa: una

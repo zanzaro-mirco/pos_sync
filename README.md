@@ -97,6 +97,8 @@ lib/
   core/
     clock.dart                   il tempo come dipendenza iniettabile
     di.dart                      registrazione con get_it
+    feature_flags.dart           cosa si può spegnere da remoto
+    firebase/                    l'unico posto che conosce Firebase
   features/orders/
     domain/                      modelli e contratti — nessuna dipendenza esterna
       order.dart
@@ -196,6 +198,9 @@ I test coprono i casi che contano, non le righe facili:
 | **Elezione** | Su tre dispositivi con gli stessi dati se ne promuove esattamente uno, e una cassa che si annuncia ancora non viene sostituita |
 | Cassa cambiata di identità | Gli ordini locali tornano in coda e arrivano al registro nuovo — che altrimenti nascerebbe vuoto senza che nessuno segnali niente |
 | Il foglio della rete locale | Le tre scelte, l'indirizzo solo a chi serve, la porta che non si digita in nessun ruolo |
+| **Interruttore remoto spento** | La cassa chiude davvero la porta, i tablet in sala mandano gli ordini al backend, le impostazioni restano e riaccendendo ognuno riprende il suo ruolo |
+| Un flag cambiato | Fa girare subito la coda, senza aspettare il prossimo ordine; un giro che fallisce resta un avviso invece di diventare un crash |
+| Metrica di prodotto | Un conteggio per giro con invii riusciti, nessuno per un giro a vuoto o fallito |
 | **L'app vera, su un sistema vero** | Parte su un file nuovo, l'ordine si ritrova dopo un riavvio, la cassa apre davvero una porta e risponde: `integration_test`, su emulatore in pipeline |
 
 Tempo, identificativi, log, politica di ritentativo, **contatore logico e politica di
@@ -252,6 +257,21 @@ un ripiego voluto — chi clona il repository deve poter compilare in rilascio s
 una chiave altrui — ma è anche il modo esatto in cui una Release potrebbe non essere un
 rilascio senza che nessuno se ne accorga. Il controllo guarda l'APK, non la
 configurazione che avrebbe dovuto produrlo, e si ferma se trova `CN=Android Debug`.
+
+## Firebase, facoltativo
+
+L'app compila e parte **senza** Firebase: senza `android/app/google-services.json` i plugin
+non si applicano, e crash, metriche e interruttore remoto restano spenti. Il file non è nel
+repository. Chi ha accesso al progetto lo rigenera con:
+
+```bash
+firebase apps:sdkconfig ANDROID <id-app> --project <id-progetto> -o android/app/google-services.json
+```
+
+L'interruttore è il parametro booleano `peer_sync_enabled` in Remote Config. Pubblicato a
+`false`, la rete locale si spegne su ogni tablet che vede internet in meno di due minuti,
+senza pubblicare una versione nuova. Il perché delle scelte, e la prova sul telefono, sono in
+[ARCHITECTURE.md](ARCHITECTURE.md#osservabilità-e-interruttore-remoto).
 
 ## Provare la demo
 
@@ -357,6 +377,10 @@ dell'app e la coda riparte da sola quando la rete torna. Cosa manca per un uso r
 - [x] Test end-to-end con `integration_test`, su emulatore Android in pipeline — l'app
       vera con il grafo di produzione: file su disco, sqlite3 di sistema, socket veri e il
       permesso di rete del manifest, cioè tutto ciò che i widget test non attraversano
+- [x] Osservabilità e interruttore remoto — Crashlytics, una metrica in Analytics e
+      `peer_sync_enabled` su Remote Config. Provato su un telefono vero: spento dalla
+      console, la cassa chiude la porta dopo 103 secondi senza reinstallare niente, e
+      riacceso la riapre
 
 ## Licenza
 

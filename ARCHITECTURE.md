@@ -8,6 +8,14 @@ core/
   id_generator.dart            gli identificativi come dipendenza
   logger.dart                  la registrazione come dipendenza
   logical_clock.dart           il tempo *logico* come dipendenza
+  feature_flags.dart           cosa si può spegnere da remoto
+  product_metrics.dart         cosa il sistema fa per chi lo usa
+  observability.dart           log, flag e metriche: arrivano insieme o per niente
+  firebase/                    l'unico posto che conosce Firebase
+    firebase_observability.dart   lo accende, se può
+    crashlytics_logger.dart       Logger → Crashlytics
+    remote_config_flags.dart      FeatureFlags ← Remote Config
+    analytics_metrics.dart        ProductMetrics → Analytics
   di.dart                      composition root
   background_sync.dart         secondo ingresso: il lavoro di WorkManager
 features/orders/
@@ -56,6 +64,7 @@ features/orders/
     connectivity_monitor.dart  contratto sulla rete + monitor controllabile
     auto_sync.dart             collega il ritorno della rete al drenaggio
     order_republisher.dart     riaccoda tutto quando la cassa cambia identità
+    drain_on_flag_change.dart  un flag cambiato fa girare subito la coda
   presentation/
     orders_cubit.dart  orders_state.dart  orders_page.dart
     order_tile.dart            la riga della lista + l'indicatore di stato
@@ -743,6 +752,148 @@ avrebbero potuto parlare con lei e passare per la ragione sbagliata.
 In pipeline girano su un emulatore Android con KVM abilitato — senza, l'emulatore parte in
 emulazione software e impiega minuti invece di secondi.
 
+## Osservabilità e interruttore remoto
+
+La domanda da cui nasce è una da colloquio: *hai rilasciato un bug grave, cosa fai?* Un'app
+già installata su trenta tablet non si aggiorna in dieci minuti. Le risposte possibili sono
+tre, e servono tutte: **saperlo** (Crashlytics), **vedere se ha fatto danni** anche senza
+crash (una metrica di prodotto), **spegnere la parte rotta** senza pubblicare niente (Remote
+Config).
+
+### Tre contratti, e uno aspettava da sempre
+
+`Logger` esisteva dalla prima voce, e il suo commento diceva già perché: `print` non si può
+reindirizzare a Crashlytics. `CrashlyticsLogger` lo implementa, e nessuna delle classi che
+registrano qualcosa è cambiata. Accanto sono arrivati `FeatureFlags` e `ProductMetrics`, con lo
+stesso schema: il contratto in `core/`, l'implementazione Firebase in `core/firebase/`, che è
+l'unica cartella a importare un pacchetto di Firebase.
+
+I tre pezzi viaggiano dentro `Observability`, e non separati, perché nascono insieme: o c'è
+un progetto Firebase configurato e ci sono tutti e tre, o non c'è e non c'è nessuno.
+`Observability.off` è l'app com'era prima: logger muto, flag ai valori di sempre, metriche
+che non vanno da nessuna parte. **L'assenza di Firebase cambia cosa si sa dell'app, non cosa
+fa l'app.**
+
+### Il segreto che non è una password
+
+`google-services.json` non è nel repository. Non è una password: Google scrive che le chiavi
+limitate ai servizi Firebase non vanno trattate come segreti, perché a proteggere i dati sono
+altre regole. Ma il file identifica il progetto, e chi lo ha può mandargli crash e metriche
+finti. La gestione sta in tre posti, con tre regole diverse:
+
+| Dove | Il file | Cosa succede |
+|---|---|---|
+| Sul computer di chi sviluppa | in `.gitignore`, si rigenera con `firebase apps:sdkconfig` | Firebase acceso |
+| Chi clona, e la pipeline dei test | assente | Gradle **non applica** i due plugin di Firebase e compila lo stesso; l'app parte con l'osservabilità spenta |
+| La pipeline di rilascio | ricostruito dal segreto `GOOGLE_SERVICES_JSON` | si **ferma** se il segreto manca o non è JSON valido, e dopo la compilazione controlla che nell'APK ci sia `google_app_id` |
+
+Il ripiego silenzioso della seconda riga è voluto, ed è lo stesso della firma: chi clona deve
+poter compilare. Nella terza non è accettabile, perché un rilascio senza crash registrati e
+senza interruttore è esattamente quello in cui un bug grave non si vede e non si ferma. Il
+controllo guarda l'APK e non la configurazione: `google_app_id` lo scrive solo il plugin dei
+servizi Google, quindi se manca l'osservabilità è spenta, qualunque cosa dicano i file.
+
+**Verificato togliendo il file.** La compilazione riesce e nell'APK `google_app_id` non c'è.
+Installata sul telefono, l'app parte, mostra i suoi ordini e scrive nel log *Firebase non
+configurato, osservabilità spenta*.
+
+### L'interruttore: dove sta, e perché vale subito
+
+Il flag è `peer_sync_enabled`, e spegne la sincronizzazione in rete locale, cioè la parte più
+recente e più complicata del sistema. È un solo punto: `LanCoordinator`, da cui passano
+tutte le strade verso la rete locale. Spento, il coordinatore si comporta come se nessuno
+avesse configurato niente:
+
+- niente server, quindi la cassa smette di rispondere agli altri tablet;
+- niente annunci mDNS;
+- niente elezione, che parte solo da chi è in sala.
+
+**Le impostazioni non si toccano.** Il flag è una decisione di chi gestisce il parco, il ruolo
+è una decisione di chi ha installato il tablet: riaccendere deve restituire a ognuno quello
+che aveva, e lo fa. Chi apre il foglio della rete locale a flag spento legge che è sospesa da
+remoto, altrimenti imposterebbe la cassa, non vedrebbe arrivare niente e cercherebbe il guasto
+nel posto sbagliato.
+
+Il coordinatore rilegge il flag a ogni giro della coda, ma un giro parte solo da un ordine
+preso, da un comando o dalla rete che torna. Per questo `drainOnFlagChange` fa girare la coda
+appena il flag cambia: senza, la cassa spenta da remoto continuerebbe a rispondere fino al
+prossimo ordine, cioè proprio mentre la si vuole fermare. Il valore arriva con
+l'aggiornamento in tempo reale di Remote Config, che non rispetta l'intervallo minimo fra una
+lettura e l'altra: quello, un'ora, vale solo per la lettura all'avvio.
+
+`remote_kill_switch_test.dart` lo prova con una porta vera: «smette di rispondere» vuol dire
+che una connessione viene rifiutata. **Falsificato due volte:** facendo ignorare il flag al
+coordinatore falliscono quattro test su cinque; togliendo il giro della coda al cambio del
+flag, falliscono i due che lo riguardano.
+
+### La prova sul telefono
+
+Il criterio della voce è *spegnere una funzionalità da remoto senza pubblicare una nuova
+versione*, e si prova solo con un progetto vero e un telefono vero. Samsung Galaxy S20,
+Android 13, APK di rilascio, 16 settembre 2026. Dal PC sulla stessa Wi-Fi un controllo prova
+la porta della cassa più volte al secondo, e l'ora della pubblicazione è quella registrata da
+Firebase nella cronologia delle versioni.
+
+| Cosa | Ora (UTC) |
+|---|---|
+| Sul telefono si sceglie «questo dispositivo è la cassa»: la porta si apre | 12:58:01 |
+| Nella console si pubblica `peer_sync_enabled = false` | 12:58:36 |
+| **La porta si chiude** | 13:00:19 |
+| Nella console si ripubblica `true` | 13:02:14 |
+| **La porta si riapre**, senza toccare il telefono | 13:03:56 |
+
+Fra la pubblicazione e l'effetto passano **103 e 102 secondi**. Il processo dell'app è lo stesso
+per tutta la prova: nessun riavvio, nessuna installazione, e il ruolo di cassa torna da solo
+quando il flag si riaccende.
+
+**Dove si perdano quei cento secondi non l'ho isolato.** Nei test il lato dell'app si muove
+appena riceve il cambio, senza attese proprie. Due misure così vicine fanno pensare a un ritardo sistematico nella
+consegna dell'aggiornamento più che a latenza di rete, ma non l'ho dimostrato. Per un
+interruttore di emergenza meno di due minuti bastano: l'alternativa è un rilascio.
+
+### Cosa arriva a Crashlytics, e cosa no
+
+Due strade da cui un errore esce senza che nessuno lo prenda: `FlutterError.onError` per
+quelli dentro il framework, `PlatformDispatcher.onError` per tutti gli altri, cioè il caso
+tipico di un `Future` fallito in una sincronizzazione partita da un evento. Senza la seconda,
+Crashlytics vedrebbe solo i crash dell'interfaccia.
+
+Dal logger passano gli avvisi, con una regola: **un avviso diventa un errore registrato solo
+se porta con sé un errore.** Un ordine abbandonato o un drenaggio fallito devono comparire in
+un grafico anche se l'app non è caduta. Un conflitto sul tavolo o un annuncio mDNS non
+riuscito sono il sistema che fa il suo lavoro in condizioni difficili: restano come contesto,
+nel registro breve che Crashlytics allega al prossimo errore.
+
+In debug la raccolta è spenta: i crash di chi scrive il codice finirebbero nel grafico dei
+tablet in sala. **Verificato sul telefono** con un crash indotto da `adb shell am crash`: al
+riavvio l'SDK ha inviato il rapporto e il servizio ha risposto `200`.
+
+### La metrica: un evento per invio
+
+`order_synced`, un evento per ogni invio riuscito. Il conto sta nel `SyncWorker` e non in chi
+lo chiama, perché i chiamanti sono tre: la rete che torna, un comando e il lavoro di sistema.
+Contare in uno solo perderebbe gli altri due senza che niente lo segnali. Anche il lavoro in
+background accende Firebase, per la stessa ragione.
+
+Un evento per invio e non uno per giro con il numero dentro: Analytics conta gli eventi da
+sé, per ora e per giorno, mentre un numero dentro un parametro andrebbe prima registrato a
+mano come metrica personalizzata nella console, un passo che nessun file del repository
+ricorderebbe. **Verificato sul telefono**, in modalità debug di Analytics: l'evento parte al
+primo ordine e il caricamento risponde `204`.
+
+### Windows, e quanto costa
+
+Sulla build Windows Firebase resta spento. Crashlytics e Analytics su Windows non esistono.
+Remote Config sì, attraverso l'SDK C++ per desktop, che Google dichiara in beta e adatto solo
+allo sviluppo, non al codice distribuito. Il Windows di questo progetto fa da cassa nella
+prova a due dispositivi, e non vale un'eccezione a quella avvertenza.
+
+Spento non vuol dire gratis. `firebase_core` ha un'implementazione Windows, e la sua
+compilazione **scarica l'SDK C++ intero, 918 MB**, anche se nessuna riga lo usa. È il prezzo
+di una dipendenza che non si può escludere per piattaforma.
+
+Sul telefono, l'APK di rilascio passa da 59.120.261 a 60.367.130 byte: **1,2 MB in più**.
+
 ## SOLID, punto per punto
 
 **Single Responsibility.** Il `SyncWorker` faceva cinque cose: orchestrare la coda,
@@ -908,3 +1059,22 @@ e riaperto il file.
   servirebbe la dichiarazione `NSBonjourServices` nell'Info.plist e una verifica su
   un dispositivo Apple: prometterlo senza averlo provato sarebbe una dichiarazione
   non sostenuta, come già per il lavoro in background.
+- **L'interruttore non raggiunge un tablet che non vede internet.** Ed è il limite da dire per
+  primo, perché la rete locale esiste proprio per quando il cloud non si vede. Remote Config
+  conserva su disco l'ultimo valore attivato, quindi un tablet che il flag spento lo ha
+  ricevuto dovrebbe restare spento anche offline e dopo un riavvio: lo dice la documentazione,
+  qui non è verificato.
+- **Dalla pubblicazione all'effetto passano cento secondi**, misurati due volte, e la causa non
+  è isolata.
+- **I crash Dart non sono provati sul telefono.** Lì è provato il percorso completo con un crash
+  Java indotto da `adb`. I due gestori Dart sono quattro righe senza un test, perché in
+  `flutter test` Crashlytics non esiste.
+- **Gli adattatori Firebase non hanno test**, per la stessa ragione di `NsdDiscovery`: parlano con
+  i canali di piattaforma. Tutto ciò che si può sbagliare sta dietro i tre contratti, dove un
+  doppio lo raggiunge.
+- **La pipeline di rilascio con Firebase non ha ancora girato.** I due controlli nuovi —
+  segreto presente e `google_app_id` nell'APK — gireranno la prima volta al prossimo tag.
+- **La metrica conta gli invii, non gli ordini.** Un ordine a cui si aggiunge una riga conta
+  due: è la misura del lavoro della coda, non dei coperti.
+- **Su Windows l'osservabilità è spenta**, ma la compilazione scarica lo stesso l'SDK C++ di
+  Firebase.

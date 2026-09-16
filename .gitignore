@@ -23,3 +23,9 @@ test/failures/
 android/keystore.properties
 *.jks
 *.keystore
+
+# La configurazione di Firebase. Non è una password - Google stesso scrive che
+# la chiave dentro non è segreta - ma identifica il progetto, e chi la ha può
+# mandarci crash e metriche finti. Si rigenera dal progetto con
+# `firebase apps:sdkconfig`, come spiega il README.
+android/app/google-services.json

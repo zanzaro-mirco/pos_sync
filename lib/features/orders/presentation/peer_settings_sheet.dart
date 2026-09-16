@@ -26,9 +26,18 @@ class PeerSettingsSheet extends StatefulWidget {
     required this.onSave,
     this.localAddresses = const <String>[],
     this.onCheck,
+    this.remotelyDisabled = false,
   });
 
   final PeerSettings initial;
+
+  /// Se la rete locale è spenta da remoto.
+  ///
+  /// Le impostazioni restano modificabili: il flag non le cancella, e chi le
+  /// cambia adesso le ritroverà in vigore quando verrà riacceso. Ma chi apre il
+  /// foglio deve sapere che per ora non hanno effetto, altrimenti imposta la
+  /// cassa, non vede arrivare niente e cerca il guasto nel posto sbagliato.
+  final bool remotelyDisabled;
   final ValueChanged<PeerSettings> onSave;
 
   /// Prova la configurazione mostrata e dice com'è andata.
@@ -117,6 +126,19 @@ class _PeerSettingsSheetState extends State<PeerSettingsSheet> {
                 'fra loro, purché uno faccia da punto di raccolta.',
               ),
             ),
+            if (widget.remotelyDisabled)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Text(
+                  'Sospesa da remoto: per ora questo dispositivo parla solo '
+                  'con il backend. Le scelte fatte qui varranno quando verrà '
+                  'riattivata.',
+                  key: const Key('peer-remotely-disabled'),
+                  style: text.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+                ),
+              ),
             const Divider(height: 1),
             // La scelta sta sul gruppo e non sulle singole voci: `groupValue` e
             // `onChanged` su `RadioListTile` sono deprecati, e la ragione è
