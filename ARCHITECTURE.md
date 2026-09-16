@@ -795,7 +795,9 @@ servizi Google, quindi se manca l'osservabilità è spenta, qualunque cosa dican
 
 **Verificato togliendo il file.** La compilazione riesce e nell'APK `google_app_id` non c'è.
 Installata sul telefono, l'app parte, mostra i suoi ordini e scrive nel log *Firebase non
-configurato, osservabilità spenta*.
+configurato, osservabilità spenta*. E dall'altra parte, con la `v0.2.0`: la pipeline di
+rilascio ha ricostruito il file dal segreto, ha trovato `google_app_id` nell'APK, e l'app con
+Firebase acceso è partita sull'emulatore senza Play Services.
 
 ### L'interruttore: dove sta, e perché vale subito
 
@@ -1076,8 +1078,6 @@ e riaperto il file.
 - **Gli adattatori Firebase non hanno test**, per la stessa ragione di `NsdDiscovery`: parlano con
   i canali di piattaforma. Tutto ciò che si può sbagliare sta dietro i tre contratti, dove un
   doppio lo raggiunge.
-- **La pipeline di rilascio con Firebase non ha ancora girato.** I due controlli nuovi —
-  segreto presente e `google_app_id` nell'APK — gireranno la prima volta al prossimo tag.
 - **La metrica conta gli invii, non gli ordini.** Un ordine a cui si aggiunge una riga conta
   due: è la misura del lavoro della coda, non dei coperti.
 - **Su Windows l'osservabilità è spenta**, ma la compilazione scarica lo stesso l'SDK C++ di
