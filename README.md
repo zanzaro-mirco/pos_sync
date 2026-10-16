@@ -7,7 +7,7 @@ senza mai generare duplicati. Con il backend irraggiungibile i tablet si sincron
 
 [![CI](https://github.com/zanzaro-mirco/pos_sync/actions/workflows/ci.yml/badge.svg)](https://github.com/zanzaro-mirco/pos_sync/actions/workflows/ci.yml)
 
-È uno dei quattro progetti del mio portfolio: la scheda, insieme agli altri tre, è su [zanzaro-mirco.github.io](https://zanzaro-mirco.github.io/progetti/pos-sync/).
+È uno dei cinque progetti del mio portfolio: la scheda, insieme agli altri quattro, è su [zanzaro-mirco.github.io](https://zanzaro-mirco.github.io/progetti/pos-sync/).
 
 ## Il problema
 
