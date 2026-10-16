@@ -133,7 +133,7 @@ void main() {
     });
 
     test('i dati sopravvivono alla chiusura e alla riapertura', () async {
-      // Il criterio della roadmap, nella sua forma più diretta. In memoria
+      // Il criterio della persistenza, nella sua forma più diretta. In memoria
       // questo test non si può nemmeno scrivere.
       final Directory directory =
           Directory.systemTemp.createTempSync('pos_sync_persistenza');

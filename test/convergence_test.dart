@@ -1,4 +1,4 @@
-/// Il criterio della voce 2.4: due dispositivi che modificano lo stesso tavolo
+/// Il criterio della convergenza: due dispositivi che modificano lo stesso tavolo
 /// in ordine invertito convergono allo stesso stato finale.
 ///
 /// Il criterio chiede **convergenza**, non "il conflitto viene gestito", ed è

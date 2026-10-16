@@ -1,4 +1,4 @@
-/// **Il criterio della voce 2.5.**
+/// **Il criterio della rete locale.**
 ///
 /// «Due istanze dell'app sulla stessa rete che si vedono gli ordini a vicenda
 /// con il cloud spento.»
@@ -161,7 +161,7 @@ void main() {
 
     // Un tentativo solo, non `settle()`. Il budget di ritentativi è tre, e
     // consumarlo tutto con la cassa spenta marcherebbe l'ordine come fallito:
-    // è la politica della voce 2.2 che fa il suo mestiere, ma questo test
+    // è la politica dei ritentativi che fa il suo mestiere, ma questo test
     // misurerebbe quella invece della traduzione degli errori.
     await floor.worker.drain();
 

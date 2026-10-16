@@ -1,7 +1,7 @@
 /// Il foglio con cui si sceglie che parte fa questo dispositivo.
 ///
 /// È l'unico punto in cui la rete locale si configura col dito, e senza di
-/// esso tutto il resto della voce 2.5 resterebbe raggiungibile solo dai test —
+/// esso tutto il resto della rete locale resterebbe raggiungibile solo dai test —
 /// lo stesso difetto che i conflitti avevano prima di `SecondDevice`.
 library;
 

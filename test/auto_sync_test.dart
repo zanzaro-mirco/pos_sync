@@ -76,7 +76,7 @@ void main() {
     }
 
     // -------------------------------------------------------------------
-    // Il criterio di fatto della voce 2.2 della roadmap.
+    // Il criterio di fatto della sincronizzazione automatica.
     // -------------------------------------------------------------------
     test('il monitor passa a online e la coda si svuota da sola', () async {
       env.fake.online = false;

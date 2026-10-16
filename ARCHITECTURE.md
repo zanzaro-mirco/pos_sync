@@ -456,7 +456,7 @@ fusa. Fondere sul server sembrerebbe più efficiente e distruggerebbe la
 provenienza: la versione di un dispositivo è ciò che *quel* dispositivo credeva, e
 senza non si può più rispondere alla domanda da cui dipende il riconoscimento del
 conflitto — la versione fusa contiene tutte le righe per costruzione. È anche la
-scelta che tiene la porta aperta al passo successivo della roadmap: fra due tablet
+scelta che tiene la porta aperta alla sincronizzazione in rete locale: fra due tablet
 in rete locale, un server che fonde non c'è.
 
 ### Perché si può mostrare, e non solo raccontare
@@ -496,7 +496,7 @@ chiede.
 ## La rete locale
 
 *«In un ristorante il server cloud è irraggiungibile ma i tablet si vedono fra loro.»*
-È l'ultima voce della roadmap, ed è quella che mette alla prova tutte le scelte
+È l'ultimo criterio di fatto del progetto, ed è quello che mette alla prova tutte le scelte
 prese prima: se il livello di sincronizzazione è davvero disaccoppiato dal
 trasporto, sostituire il trasporto non deve toccare nient'altro.
 
